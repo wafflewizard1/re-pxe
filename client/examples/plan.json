@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "image": "\\\\re-pxe.example\\re-pxe-images\\APPROVED_IMAGE_DIRECTORY\\image.wim",
+  "sha256": "REPLACE_WITH_64_LOWERCASE_HEXADECIMAL_CHARACTERS",
+  "imageIndex": 1,
+  "targetIdentity": "serial:REPLACE_WITH_UNIQUE_DISK_SERIAL_FROM_INVENTORY",
+  "scratchDirectory": "X:\\re-pxe\\work",
+  "jobDirectory": "Z:\\jobs",
+  "recoveryMiB": 1536
+}

@@ -1,0 +1,9 @@
+#!ipxe
+ifopen net0 || goto failed
+dhcp net0 || goto failed
+chain http://@REPXE_ADDRESS@:8089/pxe/boot.ipxe?mac=${net0/mac} || goto failed
+exit
+:failed
+echo re-pxe network boot failed.
+prompt Press a key to return to firmware.
+exit

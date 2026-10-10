@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "packageId": "REPLACE-WITH-PUBLISHED-PACKAGE-ID",
+  "architecture": "amd64",
+  "manufacturer": "REPLACE-WITH-EXACT-BIOS-MANUFACTURER",
+  "model": "REPLACE-WITH-EXACT-BIOS-MODEL",
+  "windowsBuild": "26300",
+  "review": {
+    "hardwareTestPassed": false,
+    "note": "Replace this example with the reviewed server manifest."
+  },
+  "files": [
+    {"path": "driver.inf", "size": 1, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    {"path": "driver.cat", "size": 1, "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "infPaths": ["driver.inf"]
+}

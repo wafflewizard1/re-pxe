@@ -1,0 +1,7 @@
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends cmake ninja-build g++ g++-mingw-w64-x86-64-posix && rm -rf /var/lib/apt/lists/*
+WORKDIR /source
+COPY . .
+RUN cmake -S . -B /build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build /build/linux && ctest --test-dir /build/linux --output-on-failure
+RUN cmake -S . -B /build/windows -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/mingw64.cmake && cmake --build /build/windows
+RUN mkdir /artifacts && cp /build/windows/re-pxe.exe /build/windows/repxe_*tests.exe /artifacts/

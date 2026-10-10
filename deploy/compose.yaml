@@ -1,0 +1,106 @@
+name: re-pxe
+services:
+  api:
+    image: re-pxe-server:local
+    build: ../server
+    restart: unless-stopped
+    environment:
+      REPXE_DATA: /data
+      REPXE_ALLOW_HTTP: "true"
+      REPXE_ADDRESS: ${REPXE_ADDRESS:?Set the server LAN address}
+      REPXE_ADMIN_TOKEN: ${REPXE_ADMIN_TOKEN:?Set admin token}
+      REPXE_CAPTURE_TOKEN: ${REPXE_CAPTURE_TOKEN:?Set capture token}
+      REPXE_AGENT_TOKEN: ${REPXE_AGENT_TOKEN:?Set agent token}
+      REPXE_DEPLOY_TOKEN: ${REPXE_DEPLOY_TOKEN:?Set deploy token}
+    volumes:
+      - ${REPXE_DATA_ROOT:-../data}:/data
+    ports:
+      - "127.0.0.1:8088:8000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  backup:
+    image: re-pxe-server:local
+    restart: unless-stopped
+    command: [python, -m, repxe.backup_schedule]
+    environment:
+      REPXE_DATA: /data
+    volumes:
+      - ${REPXE_DATA_ROOT:-../data}:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    depends_on:
+      api:
+        condition: service_healthy
+  network:
+    image: python:3.14-slim-bookworm
+    restart: unless-stopped
+    user: "1000:1000"
+    network_mode: host
+    command: [python, /collector.py, --output, /database/server-network.json]
+    volumes:
+      - ./collect_network.py:/collector.py:ro
+      - ${REPXE_DATA_ROOT:-../data}/database:/database
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    depends_on:
+      api:
+        condition: service_healthy
+  gateway:
+    image: caddy:2.11.2-alpine
+    restart: unless-stopped
+    environment:
+      REPXE_ADDRESS: ${REPXE_ADDRESS:?Set the server LAN address}
+      # Space-separated IPs/CIDRs for authorized upstream reverse proxies.
+      REPXE_TRUSTED_PROXIES: ${REPXE_TRUSTED_PROXIES:-127.0.0.1/32 ::1/128}
+    ports:
+      - "8443:8443"
+      - "8080:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+  boot:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    ports:
+      - "8089:80"
+    volumes:
+      - ${REPXE_DATA_ROOT:-../data}/boot:/usr/share/nginx/html:ro
+      - ./nginx-boot.conf:/etc/nginx/conf.d/default.conf:ro
+  tftp:
+    build:
+      context: .
+      dockerfile: Dockerfile.tftp
+    restart: unless-stopped
+    # TFTP chooses a second UDP port after RRQ. Host networking keeps that
+    # transfer socket on the same LAN address instead of losing it in Docker's
+    # UDP port proxy. UFW limits both the listener and transfer range to LAN.
+    network_mode: host
+    volumes:
+      - ${REPXE_DATA_ROOT:-../data}/boot:/tftp:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE, SYS_CHROOT, SETUID, SETGID]
+volumes:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,2 @@
+#pragma once
+inline constexpr const char* installed_cleanup_script = R"REPXECLEANUP(@CLEANUP_SCRIPT@)REPXECLEANUP";

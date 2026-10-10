@@ -1,0 +1,6 @@
+__pycache__
+.pytest_cache
+*.pyc
+tests
+repxe/assets/shredos
+repxe/assets/nwipe/source.tar.gz

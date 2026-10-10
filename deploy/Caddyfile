@@ -1,0 +1,31 @@
+{
+    auto_https disable_redirects
+    default_sni {$REPXE_ADDRESS}
+    servers {
+        trusted_proxies static {$REPXE_TRUSTED_PROXIES:127.0.0.1/32 ::1/128}
+        trusted_proxies_strict
+    }
+}
+(portal) {
+    request_body {
+        max_size 17MB
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+    }
+    @report_pdf path /api/job-reports/*/pdf /api/workflow-runs/*/certificate /api/workflow-runs/*/certificate/followup
+    header @report_pdf Content-Security-Policy "default-src 'none'; frame-ancestors 'self'"
+    @portal not path /api/job-reports/*/pdf /api/workflow-runs/*/certificate /api/workflow-runs/*/certificate/followup
+    header @portal Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+    reverse_proxy api:8000
+}
+
+https://{$REPXE_ADDRESS}:8443 {
+    tls internal
+    import portal
+}
+
+http://:8080 {
+    import portal
+}

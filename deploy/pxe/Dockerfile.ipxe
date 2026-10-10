@@ -1,0 +1,12 @@
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential git liblzma-dev ca-certificates patch && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+ARG IPXE_REV=6262f1081fe185564e8ec8365a1d23597ec6e6f5
+RUN git clone https://github.com/ipxe/ipxe.git . && git checkout "$IPXE_REV" && git rev-parse HEAD > /ipxe-source-commit
+COPY bootstrap.ipxe /bootstrap.ipxe
+COPY ignore-empty-input.patch /ignore-empty-input.patch
+RUN patch -p1 < /ignore-empty-input.patch
+RUN printf '#define CONSOLE_CMD\n#define IMAGE_PNG\n' > src/config/local/general.h
+RUN make NO_WERROR=1 -C src -j4 bin-x86_64-efi/snponly.efi EMBED=/bootstrap.ipxe
+RUN mkdir /artifacts && cp src/bin-x86_64-efi/snponly.efi COPYING /ipxe-source-commit /artifacts/
+RUN cp /bootstrap.ipxe bootstrap.ipxe && cp /ignore-empty-input.patch ignore-empty-input.patch && printf 'make -C src -j4 bin-x86_64-efi/snponly.efi EMBED=../bootstrap.ipxe NO_WERROR=1\n' > BUILD.txt && rm -rf .git && tar -cJf /artifacts/ipxe-source.tar.xz .

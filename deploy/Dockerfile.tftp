@@ -1,0 +1,4 @@
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends tftpd-hpa && rm -rf /var/lib/apt/lists/*
+EXPOSE 69/udp 30000-30031/udp
+CMD ["/usr/sbin/in.tftpd", "--listen", "--foreground", "--address", "0.0.0.0:69", "--port-range", "30000:30031", "--user", "nobody", "--secure", "/tftp"]

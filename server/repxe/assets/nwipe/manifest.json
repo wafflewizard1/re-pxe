@@ -1,0 +1,14 @@
+{
+  "engine_version": "0.43-repxe1",
+  "upstream_version": "0.43",
+  "upstream_url": "https://github.com/martijnvanbrummelen/nwipe/releases/tag/v0.43",
+  "upstream_archive_sha256": "b1e9d94e1879934db688bce9515111ef6b0599b2244fdca2625a2e87e2d8e221",
+  "binary_sha256": "63d2dbdac740cdf09688ea742e1bfa0657becb0d7f8c6139979cf802b7f294e8",
+  "patch_sha256": "7bd202b638ce53133dbd502825be1978354f018da5f908770675e91347142875",
+  "mock_lifecycle": "PASS: 15 mocked sanitize lifecycle cases; no physical devices opened",
+  "physical_firmware_validation": false,
+  "bundle_sha256": "c3b52f66fc7c5d899266098d5ef61e66327f28110344fb4633dac5cacf185eff",
+  "source_sha256": "58aef1d26d3f1fbf0521ad293569a8048db5493b0540ceaacf4269858eb55252",
+  "bundle_bytes": 4820779,
+  "source_bytes": 168005413
+}

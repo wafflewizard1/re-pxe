@@ -1,0 +1,200 @@
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -31,6 +31,7 @@
+     pass_internal.c pass_internal.h \
+     pass_static.c pass_random.c pass_scatter.c \
+     device.c device.h \
++    repxe_sanitize.c repxe_sanitize.h repxe_sanitize_state.c repxe_sanitize_state.h repxe_binding.h \
+     se_ata.c se_ata.h se_ata_gui.c se_ata_gui.h \
+     se_nvme.c se_nvme.h se_nvme_gui.c se_nvme_gui.h \
+     hpa_dco.c hpa_dco.h \
+--- a/src/options.h
++++ b/src/options.h
+@@ -51,6 +51,10 @@
+ 
+ typedef struct
+ {
++    char repxe_sanitize[16];
++    char repxe_sanitize_serial[21];
++    unsigned long long repxe_sanitize_size;
++    char repxe_sanitize_events[PATHNAME_MAX];
+     int force;  // Allow wiping of busy/mounted devices (0 = no, 1 = yes)
+     int autonuke;  // Do not prompt the user for confirmation when set.
+     int autopoweroff;  // Power off on completion of wipe
+--- a/src/options.c
++++ b/src/options.c
+@@ -75,6 +75,10 @@
+ 
+     /* The list of acceptable long options. */
+     static struct option nwipe_options_long[] = {
++        { "sanitize", required_argument, 0, 1001 },
++        { "sanitize-serial", required_argument, 0, 1002 },
++        { "sanitize-size", required_argument, 0, 1003 },
++        { "sanitize-events", required_argument, 0, 1004 },
+         /* Set when user wants to allow wiping of devices that are in use. */
+         { "force", no_argument, 0, 0 },
+ 
+@@ -157,11 +161,15 @@
+         { "verbose", no_argument, 0, 0 },
+ 
+         /* Display program version. */
+-        { "version", no_argument, 0, 0 },
++        { "version", no_argument, 0, 'V' },
+ 
+         /* Requisite padding for getopt(). */
+         { 0, 0, 0, 0 } };
+ 
++    memset(nwipe_options.repxe_sanitize,0,sizeof(nwipe_options.repxe_sanitize));
++    memset(nwipe_options.repxe_sanitize_serial,0,sizeof(nwipe_options.repxe_sanitize_serial));
++    memset(nwipe_options.repxe_sanitize_events,0,sizeof(nwipe_options.repxe_sanitize_events));
++    nwipe_options.repxe_sanitize_size=0;
+     /* Set default options. */
+     nwipe_options.force = 0;
+     nwipe_options.autonuke = 0;
+@@ -360,6 +368,24 @@
+ 
+         switch( nwipe_opt )
+         {
++            case 1001:
++                if(strcmp(optarg,"probe") && strcmp(optarg,"block") && strcmp(optarg,"crypto") && strcmp(optarg,"overwrite")) {
++                    fprintf(stderr,"Invalid sanitize action; use probe, block, crypto or overwrite.\n"); exit(20);
++                }
++                snprintf(nwipe_options.repxe_sanitize,sizeof(nwipe_options.repxe_sanitize),"%s",optarg); break;
++            case 1002:
++                if(!optarg[0] || strlen(optarg)>=sizeof(nwipe_options.repxe_sanitize_serial)) exit(22);
++                snprintf(nwipe_options.repxe_sanitize_serial,sizeof(nwipe_options.repxe_sanitize_serial),"%s",optarg); break;
++            case 1003: {
++                char *end=NULL; errno=0;
++                if(optarg[0]<'1' || optarg[0]>'9') exit(20);
++                nwipe_options.repxe_sanitize_size=strtoull(optarg,&end,10);
++                if(errno || !end || *end || !nwipe_options.repxe_sanitize_size) exit(20);
++                break;
++            }
++            case 1004:
++                if(optarg[0]!='/' || strlen(optarg)>=sizeof(nwipe_options.repxe_sanitize_events)) exit(20);
++                snprintf(nwipe_options.repxe_sanitize_events,sizeof(nwipe_options.repxe_sanitize_events),"%s",optarg); break;
+             case 0: /* Long options without short counterparts. */
+                 if( strcmp( nwipe_options_long[i].name, "force" ) == 0 )
+                 {
+--- a/src/nwipe.c
++++ b/src/nwipe.c
+@@ -62,6 +62,8 @@
+ #include "conf.h"
+ #include "version.h"
+ #include "hpa_dco.h"
++#include "repxe_sanitize.h"
++#include "repxe_binding.h"
+ #include "conf.h"
+ #include <libconfig.h>
+ #include <fcntl.h> /* O_DIRECT, O_RDWR, ... */
+@@ -354,6 +356,26 @@
+ 
+     nwipe_optind = nwipe_options_parse( argc, argv );
+ 
++    if(nwipe_options.repxe_sanitize[0]) {
++        /* Explicit singleton only; no auto-scan, force, poweroff, suppressed signals,
++         * hidden PDF output or background PRNG benchmark in this dispatch. */
++        int probe=!strcmp(nwipe_options.repxe_sanitize,"probe");
++        struct stat repxe_operand_stat = { 0 };
++        if(argc-nwipe_optind==1
++           && !repxe_binding_snapshot_valid(lstat(argv[nwipe_optind],&repxe_operand_stat),&repxe_operand_stat)) {
++            nwipe_log(NWIPE_LOG_ERROR,"Native sanitize operand must be a direct, verifiable whole block node; symlinks are refused.");
++            cleanup(); return 22;
++        }
++        if(argc-nwipe_optind!=1 || !nwipe_options.repxe_sanitize_serial[0]
++           || !nwipe_options.repxe_sanitize_size || !nwipe_options.repxe_sanitize_events[0]
++           || nwipe_options.force || nwipe_options.autopoweroff || nwipe_options.nosignals
++           || (!probe && (!nwipe_options.autonuke || !nwipe_options.nowait
++               || !nwipe_options.PDF_enable || !strcmp(nwipe_options.PDFreportpath,"noPDF")))) {
++            nwipe_log(NWIPE_LOG_ERROR,"Explicit sanitize requires one device, serial, size, new events file, and destructive autonuke/nowait/PDF settings.");
++            cleanup(); return 20;
++        }
++        nwipe_options.prng_auto=0; nwipe_options.prng_benchmark_only=0;
++    }
+     /* Log nwipes version */
+     nwipe_log( NWIPE_LOG_INFO, "%s", banner );
+ 
+@@ -709,6 +731,11 @@
+         nwipe_log_drives_temperature_limits( c1[i] );
+     }
+ 
++    if(nwipe_options.repxe_sanitize[0]) {
++        c2[0]=c1[0]; nwipe_misc_thread_data.nwipe_selected=1;
++        int sanitize_result=nwipe_repxe_sanitize(c1,nwipe_enumerated);
++        cleanup(); free(c2); return sanitize_result;
++    }
+     /* Check for initialization errors. */
+     if( nwipe_error )
+     {
+--- a/src/device.c
++++ b/src/device.c
+@@ -39,6 +39,7 @@
+ #include "nwipe.h"
+ #include "context.h"
+ #include "device.h"
++#include "repxe_binding.h"
+ #include "method.h"
+ #include "options.h"
+ #include "logging.h"
+@@ -662,6 +663,16 @@
+ 
+     bus = 0;
+ 
++    /* Bind the whole block node BEFORE serial/capability identification. Native
++     * dispatch runs before upstream opens software-wipe descriptors. */
++    struct stat repxe_enumerated_stat = { 0 };
++    if( nwipe_options.repxe_sanitize[0]
++        && !repxe_binding_snapshot_valid( lstat( dev->path, &repxe_enumerated_stat ), &repxe_enumerated_stat ) )
++    {
++        nwipe_log( NWIPE_LOG_ERROR, "%s: Native sanitize requires a direct, verifiable block node", dev->path );
++        return 0;
++    }
++
+     /* Check whether this drive is on the excluded drive list. */
+     if( nwipe_is_excluded_device( dev->path ) )
+     {
+@@ -713,6 +724,7 @@
+ 
+     next_device = malloc( sizeof( nwipe_context_t ) );
+ 
++
+     /* Check the allocation. */
+     if( !next_device )
+     {
+@@ -723,6 +735,8 @@
+ 
+     /* Zero the allocation. */
+     memset( next_device, 0, sizeof( nwipe_context_t ) );
++    if( nwipe_options.repxe_sanitize[0] )
++        next_device->device_stat = repxe_enumerated_stat;
+ 
+     /*
+      * Get device busy state (possibly mounted or otherwise in use).
+--- a/src/version.c
++++ b/src/version.c
+@@ -26,7 +26,7 @@
+ #include "git_hash.h"
+ #endif
+ 
+-const char* version_string = "0.43";
++const char* version_string = "0.43-repxe1";
+ const char* program_name = "nwipe";
+ const char* author_name = "Martijn van Brummelen";
+ const char* email_address = "git@brumit.nl";
+@@ -41,5 +41,5 @@
+                         "This is free software; see the source for copying conditions.\n"
+                         "There is NO warranty; not even for MERCHANTABILITY or\n"
+                         "FITNESS FOR A PARTICULAR PURPOSE.\n";
+-const char* banner = "nwipe 0.43";
++const char* banner = "nwipe 0.43-repxe1";
+ const char* git_hash_string = NWIPE_GIT_HASH;
+--- a/src/miscellaneous.c
++++ b/src/miscellaneous.c
+@@ -192,6 +192,7 @@
+ void convert_seconds_to_hours_minutes_seconds( u64 total_seconds, int* hours, int* minutes, int* seconds )
+ {
+     /* Convert binary seconds into binary hours, minutes and seconds */
++    *hours = 0;
+ 
+     if( total_seconds % 60 )
+     {

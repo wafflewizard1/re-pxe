@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "endpoint": "https://imaging-server:8443/api/client-jobs/REPLACE-WITH-JOB-ID/report",
+  "token": "REPLACE-WITH-SCOPED-EXPIRING-REPORT-TOKEN"
+}

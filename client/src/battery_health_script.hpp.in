@@ -1,0 +1,2 @@
+#pragma once
+inline constexpr char battery_script[] = R"BATTERY_PS1(@BATTERY_HEALTH_SCRIPT@)BATTERY_PS1";

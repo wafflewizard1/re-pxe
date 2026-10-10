@@ -1,0 +1,21 @@
+--- a/src/core/getkey.c
++++ b/src/core/getkey.c
+@@ -50,8 +50,16 @@
+ 
+ 	while ( ( timeout == 0 ) || ( ( currticks() - start ) < timeout ) ) {
+ 		step();
+-		if ( iskey() )
+-			return getchar();
++		if ( iskey() ) {
++			int character = getchar();
++
++			/* EFI may signal a key event without a character (e.g.
++			 * modifier-only input or a failed ReadKeyStroke).  Keep
++			 * waiting within the original deadline for a real key.
++			 */
++			if ( character != 0 )
++				return character;
++		}
+ 		cpu_nap();
+ 	}
+ 

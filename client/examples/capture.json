@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "sourceVolume": "W:\\",
+  "destination": "Z:\\reference.wim",
+  "scratchDirectory": "Z:\\scratch",
+  "jobDirectory": "Z:\\jobs",
+  "name": "Generalized reference",
+  "referencePreparation": "REPLACE_WITH_YOUR_OFFLINE_REFERENCE_PREPARATION_RECORD"
+}
