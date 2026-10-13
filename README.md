@@ -1,12 +1,10 @@
 # re-pxe
 
 A PXE server and workshop portal for inventory, disk erasure and Windows deployment.
-Create a routine, publish it and assign it to a PC or make it the boot default.
-Track progress and download one report per run, including original nwipe certificates.
-
-ShredOS is included in the server build. Startup prepares its trusted boot companion
-automatically; there is no separate download/install button. Inventory intake never
-erases a disk. Erasure and Windows installation require an explicitly configured routine.
+This is highly WIP and has only worked on a couple setups so far.
+This is intended for tech shops or ITAD workplaces.
+You can make routines to automate what steps and actions pcs/laptops will run,
+For example: Boot -> Wipe drive -> if succeed install windows else fail and halt.
 
 ## Install
 
