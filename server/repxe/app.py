@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import field_validator, model_validator, BaseModel, ConfigDict, Field
 from . import pxe, driver_library, driver_sessions, driver_management, server_info, file_workspace, workflows, capabilities, routines
 from . import job_reports, branding, report_settings, database_recovery
+from . import portal_updates
 from .durable import atomic_json
 from .auth import WebsiteAuth
 from .driver_inf import amd64_catalog, MAX_INF_BYTES
@@ -394,6 +395,7 @@ def create_app(data_root=None, tokens=None, *, secure_cookies=True, allow_http=N
 
     app = FastAPI(title='re-pxe Server', version='0.1.0', lifespan=lifespan,
                   docs_url=None, redoc_url=None)
+    app.add_middleware(portal_updates.MaintenanceMiddleware)
 
     def authorize(request: Request, authorization: Annotated[str | None, Header()] = None):
         value = authorization.removeprefix('Bearer ') if authorization and authorization.startswith('Bearer ') else ''
@@ -414,6 +416,7 @@ def create_app(data_root=None, tokens=None, *, secure_cookies=True, allow_http=N
         return app.state.store
 
     WebsiteAuth.install(app, Role, allow)
+    portal_updates.install(app, Role, allow)
     job_reports.install(app, store, Role, allow)
     from . import customer_reports
     customer_reports.install(app, store)
@@ -422,7 +425,7 @@ def create_app(data_root=None, tokens=None, *, secure_cookies=True, allow_http=N
     def health():
         with store().db() as db:
             db.execute('SELECT 1').fetchone()
-        return {'status': 'ok', 'version': '0.1.0'}
+        return {'status': 'ok', 'version': '0.1.0', 'revision': os.environ.get('REPXE_REVISION', 'unknown')}
 
     @app.get('/api/session')
     def session(request: Request, response: Response, role: Role):

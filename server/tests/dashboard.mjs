@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 const controlsSource=readFileSync(fileURLToPath(new URL('../repxe/static/controls.js',import.meta.url)),'utf8');
+const updatesSource=readFileSync(fileURLToPath(new URL('../repxe/static/updates.js',import.meta.url)),'utf8');
 const navigationSource=readFileSync(fileURLToPath(new URL('../repxe/static/navigation.js',import.meta.url)),'utf8');
 const routinesSource=readFileSync(fileURLToPath(new URL('../repxe/static/routines.js',import.meta.url)),'utf8');
 const reportsSource=readFileSync(fileURLToPath(new URL('../repxe/static/reports.js',import.meta.url)),'utf8');
@@ -28,7 +29,7 @@ function fixture(saved={},darkSystem=false){
  const dashboard={settings,configurations,clients:[client],online_clients:1,active_jobs:0,completed_today:0,completed:0,failed:0,network:null,recent_jobs:[],sampled_at:'2026-10-06T06:00:00Z',pxe:null};
  const context=vm.createContext({document,window:{addEventListener(name,fn){windowEvents[name]=fn;},history:browserHistory,location,confirm(value){confirmations.push(value);return true;},devicePixelRatio:1,matchMedia:()=>media},localStorage:storage(persistent),sessionStorage:storage(sessionValues),setInterval(){},setTimeout(){},clearTimeout(){},console,Blob,URLSearchParams,
  fetch:async(path,options)=>{requests.push({path,options});if(path==='/api/pxe-settings/default')settings.default_profile_id=JSON.parse(options.body).profile_id;if(path==='/api/pxe-settings')Object.assign(settings,JSON.parse(options.body));if(path.includes('/configuration')){client.configuration_override=JSON.parse(options.body).profile_id;client.configuration_id=client.configuration_override||settings.default_profile_id;}return {ok:true,status:200,json:async()=>path.startsWith('/api/dashboard')?dashboard:path==='/api/overview'?{counts:{image:1,drivers:0,pending:0},storage:{free:100}}:settings};}});
- vm.runInContext(appearanceSource,context);vm.runInContext(source,context);vm.runInContext(clientsSource,context);vm.runInContext(reportsSource,context);vm.runInContext(dashboardSource,context);vm.runInContext(filesSource,context);vm.runInContext(interfaceSource,context);vm.runInContext(workflowsSource,context);vm.runInContext(routinesSource,context);vm.runInContext(controlsSource,context);vm.runInContext(navigationSource,context);vm.runInContext("webSession={csrf_token:'fixture-csrf',user:{id:'admin-id',username:'admin',default_password:true}};",context);
+ vm.runInContext(appearanceSource,context);vm.runInContext(source,context);vm.runInContext(clientsSource,context);vm.runInContext(reportsSource,context);vm.runInContext(dashboardSource,context);vm.runInContext(filesSource,context);vm.runInContext(interfaceSource,context);vm.runInContext(workflowsSource,context);vm.runInContext(routinesSource,context);vm.runInContext(controlsSource,context);vm.runInContext(navigationSource,context);vm.runInContext(updatesSource,context);vm.runInContext("webSession={csrf_token:'fixture-csrf',user:{id:'admin-id',username:'admin',default_password:true}};",context);
  const call=code=>vm.runInContext(code,context);
  context.fixtureDashboard=dashboard;
  return {element,document,dashboard,client,settings,configurations,requests,call,context,persistent,sessionValues,media,systemEvents,windowEvents,browserHistory,navigationEntries,confirmations,documentEvents};
@@ -215,6 +216,18 @@ test('dismissing the default-password notice does not change account state and r
  f.call('updatePasswordNotice()');assert.equal(f.element('default-password-notice').hidden,true);f.call('clearInterfaceSession();updatePasswordNotice()');assert.equal(f.element('default-password-notice').hidden,false);
 });
 function wizardFixture(){const f=fixture();f.context.wizardFixtureData={server:{boot:{version:'0.13.3',validated:true},storage:{free:100},endpoints:{tftp_server:'server',boot_filename:'pxe/test.efi',website:'https://server',boot_http:'http://server'}},dashboard:f.dashboard,images:[],drivers:[],configs:[],queue:[{status:'ready',spec:{kind:'image'}}]};f.call('loadWizardProgress();wizardData=wizardFixtureData');return f;}
+test('portal update requires confirmation and pins the displayed revision',async()=>{
+ const f=fixture();f.call('renderPortalUpdates({enabled:true,busy:false,can_update:true,current_revision:"a".repeat(40),target_revision:"b".repeat(40),summary:"<release>"})');
+ assert.equal(f.element('update-apply').disabled,false);assert.equal(f.element('update-summary').textContent,'<release>');
+ f.context.window.confirm=()=>false;await f.call('runPortalUpdate("apply")');assert.equal(f.requests.length,0);
+ f.context.window.confirm=()=>true;await f.call('runPortalUpdate("apply")');const request=f.requests.find(r=>r.path==='/api/system-updates/apply');assert.equal(request.options.headers['X-CSRF-Token'],'fixture-csrf');assert.deepEqual(JSON.parse(request.options.body),{expected_revision:'b'.repeat(40),confirm:true});
+});
+test('portal update controls handle restart disconnection and recovery',async()=>{
+ const f=fixture();f.call('tab="settings";settingsSection="server";renderPortalUpdates({enabled:true,busy:true,phase:"restarting",detail:"Restarting services"})');assert.equal(f.element('update-apply').disabled,true);assert.equal(f.element('update-check').disabled,true);
+ f.context.fetch=async()=>{throw Error('network disconnected')};await f.call('refreshPortalUpdates()');assert.match(f.element('update-status').textContent,/Waiting for the portal to reconnect/);
+ f.context.fetch=async()=>({ok:true,status:200,json:async()=>({enabled:true,busy:false,phase:'failed',recovery_required:true,detail:'Recover previous version'})});await f.call('refreshPortalUpdates()');assert.equal(f.element('update-recover').hidden,false);assert.equal(f.element('update-recover').disabled,false);assert.equal(f.element('update-check').disabled,true);
+ f.call('signedOut()');assert.equal(f.call('portalUpdateState'),null);
+});
 test('Windows wizard requires WinPE even after install.wim and an enabled preset are published',()=>{
  const f=wizardFixture();f.call('wizardFixtureData.images=[{name:"Windows USB install.wim",image_index:1,selected_image:{build:"26300"}}];wizardFixtureData.configs=[{enabled:true}];wizardFixtureData.server.boot=null;setWizardStep(3)');
  assert.equal(f.call('wizardReady()[3]'),false);assert.equal(f.call('wizardReady()[5]'),false);assert.equal(f.element('wizard-next').disabled,true);

@@ -243,6 +243,10 @@ def start_builtin(store):
         return stopped
     def worker():
         while not stopped.is_set():
+            from .portal_updates import maintenance
+            if maintenance():
+                stopped.wait(2)
+                continue
             try:
                 if prepare_builtin(store):
                     return

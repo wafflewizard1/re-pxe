@@ -70,6 +70,9 @@ and full corresponding source archive are ignored by Git. Native client build:
   separately to retain images, drivers, media and evidence.
 - Containers restart automatically. Run setup again to rebuild an updated source checkout.
   Active RAM clients retain their original immutable release and credentials.
+- Optional [portal software updates](docs/portal-updates.md) add check/update
+  buttons in Settings → Server, with a pre-update database backup and startup
+  failure recovery. Enable the host service once using setup's `--portal-updates`.
 
 [Third-party notices](THIRD_PARTY_NOTICES.md) describe the included engine and source
 packaging. Microsoft ADK/WinPE and Windows installation media are supplied separately

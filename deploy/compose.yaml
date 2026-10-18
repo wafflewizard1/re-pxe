@@ -8,12 +8,15 @@ services:
       REPXE_DATA: /data
       REPXE_ALLOW_HTTP: "true"
       REPXE_ADDRESS: ${REPXE_ADDRESS:?Set the server LAN address}
+      REPXE_UPDATER_CONTROL: /run/re-pxe-updater
+      REPXE_REVISION: ${REPXE_REVISION:-unknown}
       REPXE_ADMIN_TOKEN: ${REPXE_ADMIN_TOKEN:?Set admin token}
       REPXE_CAPTURE_TOKEN: ${REPXE_CAPTURE_TOKEN:?Set capture token}
       REPXE_AGENT_TOKEN: ${REPXE_AGENT_TOKEN:?Set agent token}
       REPXE_DEPLOY_TOKEN: ${REPXE_DEPLOY_TOKEN:?Set deploy token}
     volumes:
       - ${REPXE_DATA_ROOT:-../data}:/data
+      - ${REPXE_UPDATER_ROOT:-../.local/updater/control}:/run/re-pxe-updater:ro
     ports:
       - "127.0.0.1:8088:8000"
     read_only: true
@@ -35,6 +38,7 @@ services:
       REPXE_DATA: /data
     volumes:
       - ${REPXE_DATA_ROOT:-../data}:/data
+      - ${REPXE_UPDATER_ROOT:-../.local/updater/control}:/run/re-pxe-updater:ro
     read_only: true
     tmpfs:
       - /tmp:size=64m
