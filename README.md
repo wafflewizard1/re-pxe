@@ -34,6 +34,9 @@ to **`pxe/snponly.efi`**. Create your routine in the portal before booting clien
 Windows routines also need a Windows image, locally built WinPE media and the
 native client. See [Windows setup](docs/windows.md). No Windows WIM, driver package,
 private certificate, credentials, database, report or historical build is included.
+An `install.wim` from a Windows USB stick supplies the installation image; it
+does not supply the WinPE boot environment containing the re-pxe client. Complete
+Windows setup before publishing a routine with a Windows step.
 
 For Windows network shares, install Samba on the server, then run
 `python3 deploy/setup.py --address YOUR_SERVER_IP --samba`. This adds dedicated

@@ -214,7 +214,24 @@ test('dismissing the default-password notice does not change account state and r
  const f=fixture();f.call('updatePasswordNotice()');assert.equal(f.element('default-password-notice').hidden,false);f.element('dismiss-password-notice').listeners.click();assert.equal(f.element('default-password-notice').hidden,true);assert.equal(f.call('webSession.user.default_password'),true);
  f.call('updatePasswordNotice()');assert.equal(f.element('default-password-notice').hidden,true);f.call('clearInterfaceSession();updatePasswordNotice()');assert.equal(f.element('default-password-notice').hidden,false);
 });
-function wizardFixture(){const f=fixture();f.context.wizardFixtureData={server:{boot:{version:'0.12.0'},storage:{free:100},endpoints:{tftp_server:'server',boot_filename:'pxe/test.efi',website:'https://server',boot_http:'http://server'}},dashboard:f.dashboard,images:[],drivers:[],configs:[],queue:[{status:'ready',spec:{kind:'image'}}]};f.call('loadWizardProgress();wizardData=wizardFixtureData');return f;}
+function wizardFixture(){const f=fixture();f.context.wizardFixtureData={server:{boot:{version:'0.13.3',validated:true},storage:{free:100},endpoints:{tftp_server:'server',boot_filename:'pxe/test.efi',website:'https://server',boot_http:'http://server'}},dashboard:f.dashboard,images:[],drivers:[],configs:[],queue:[{status:'ready',spec:{kind:'image'}}]};f.call('loadWizardProgress();wizardData=wizardFixtureData');return f;}
+test('Windows wizard requires WinPE even after install.wim and an enabled preset are published',()=>{
+ const f=wizardFixture();f.call('wizardFixtureData.images=[{name:"Windows USB install.wim",image_index:1,selected_image:{build:"26300"}}];wizardFixtureData.configs=[{enabled:true}];wizardFixtureData.server.boot=null;setWizardStep(3)');
+ assert.equal(f.call('wizardReady()[3]'),false);assert.equal(f.call('wizardReady()[5]'),false);assert.equal(f.element('wizard-next').disabled,true);
+ assert.match(f.element('wizard-body').innerHTML,/Not published/);assert.match(f.element('wizard-body').innerHTML,/Uploading install.wim/);assert.match(f.element('wizard-body').innerHTML,/data-guide="windows-media"/);
+ f.call('wizardFixtureData.server.boot={version:"0.13.3",validated:false};renderWizard()');assert.equal(f.call('wizardReady()[3]'),false);assert.match(f.element('wizard-body').innerHTML,/Testing/);
+ f.call('wizardFixtureData.server.boot.validated=true;renderWizard()');assert.equal(f.call('wizardReady()[3]'),true);assert.equal(f.call('wizardReady()[5]'),true);assert.equal(f.element('wizard-next').disabled,false);
+ f.call('wizardFixtureData.server.boot.validated=false;setWizardStep(5)');assert.match(f.element('wizard-body').innerHTML,/Return to Components/);assert.equal(f.element('wizard-next').disabled,true);
+});
+test('erasure-only wizard does not require Windows images or WinPE',()=>{
+ const f=wizardFixture();f.call('wizardFixtureData.server.boot=null;wizardFixtureData.dashboard.routines={enabled:true,default_id:"wipe",choices:[{id:"wipe",has_windows:false}]};wizardFixtureData.routines={routines:[{id:"wipe",draft:{steps:[{kind:"erase"}]}}]};wizardFixtureData.capabilities=[{status:"installed"}];setWizardStep(3)');
+ assert.equal(f.call('wizardReady()[3]'),true);assert.equal(f.call('wizardReady()[5]'),true);assert.doesNotMatch(f.element('wizard-body').innerHTML,/data-guide="windows-media"/);
+});
+test('Windows media guidance is reachable from the routine editor and explains publication',()=>{
+ const f=fixture();f.call('routineDraft={steps:[{kind:"windows"}]};routineEditorStatus()');assert.equal(f.element('routine-windows-media').hidden,false);
+ f.call('activeGuide="windows-media";renderGuides()');assert.match(f.element('guide-article').innerHTML,/install.wim/);assert.match(f.element('guide-article').innerHTML,/Build-WinPE.ps1/);assert.match(f.element('guide-article').innerHTML,/publish_pxe.py --validated/);
+ f.call('routineDraft={steps:[{kind:"erase"}]};routineEditorStatus()');assert.equal(f.element('routine-windows-media').hidden,true);
+});
 test('wizard checks published content and policy instead of treating validated uploads as complete',()=>{
  const f=wizardFixture();assert.equal(f.call('wizardReady()[3]'),false);assert.equal(f.call('wizardReady()[5]'),false);f.call('wizardFixtureData.images=[{name:"Published image",image_index:1,selected_image:{build:"26300"}}];wizardFixtureData.configs=[{id:"disabled",name:"Disabled",enabled:false}]');assert.equal(f.call('wizardReady()[3]'),true);assert.equal(f.call('wizardReady()[5]'),false);
  f.call('wizardFixtureData.configs[0].enabled=true;wizardFixtureData.dashboard.settings.default_profile_id="missing"');assert.equal(f.call('wizardReady()[5]'),false);

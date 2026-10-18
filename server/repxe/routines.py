@@ -267,7 +267,7 @@ def validate_runtime(store, db, spec, profile_artifacts):
             profile_artifacts(db, s['profile'])
             p = store.root / 'boot/pxe/current.json'
             if not p.is_file() or not json.loads(p.read_text()).get('validated'):
-                raise HTTPException(409, 'Publish validated Windows PXE media first')
+                raise HTTPException(409, 'Windows PXE boot media is not ready. Uploading install.wim only supplies the Windows installation image. Build WinPE with the re-pxe client and publish it using tools/publish_pxe.py --validated after acceptance testing. See Guides > Windows PXE setup or docs/windows.md; your routine remains saved as a draft.')
             if s['target_policy'] in ('first-disk','manual'):
                 version=tuple(map(int,json.loads(p.read_text()).get('version','0.0.0').split('.')))
                 if version < (0,12,11): raise HTTPException(409,'Publish validated WinPE 0.12.11 or newer before enabling routine disk selection')

@@ -36,6 +36,37 @@ def managed_ticket(c):
     return re.search('/pxe/config/([A-Za-z0-9_-]+)',script.text)[1]
 
 
+@pytest.mark.parametrize('media', [None, {'version': '0.13.3', 'validated': False}])
+def test_missing_winpe_explains_recovery_and_preserves_the_draft(lab, media):
+    c, root, p = lab
+    path = root / 'boot/pxe/current.json'
+    if media is None:
+        path.unlink()
+    else:
+        path.write_text(json.dumps(media))
+    draft = {'name': 'Windows from install.wim', 'steps': [
+        {'id': 'boot', 'kind': 'boot'},
+        {'id': 'windows', 'kind': 'windows', 'profile_id': p['id']},
+        {'id': 'finish', 'kind': 'finish'}]}
+    saved = c.post('/api/routines', headers=auth(), json=draft)
+    assert saved.status_code == 201, saved.text
+    uid = saved.json()['id']
+    before = c.get('/api/routines', headers=auth()).json()['routines']
+    response = c.post('/api/routines/' + uid + '/publish', headers=auth(),
+                      json={'expected_generation': 1})
+    assert response.status_code == 409
+    assert 'install.wim' in response.json()['detail']
+    assert 'tools/publish_pxe.py --validated' in response.json()['detail']
+    assert 'Guides > Windows PXE setup' in response.json()['detail']
+    assert c.get('/api/routines', headers=auth()).json()['routines'] == before
+    path.write_text(json.dumps({'version': '0.13.3'}))
+    install_media(root)
+    response = c.post('/api/routines/' + uid + '/publish', headers=auth(),
+                      json={'expected_generation': 1})
+    assert response.status_code == 200, response.text
+    assert response.json()['published_version'] == 1
+
+
 def test_menu_countdown_alternatives_and_settings_revision(lab):
     c,root,p=lab;install_media(root);uid=make(c,p)
     m=c.get('/pxe/boot.ipxe',params={'mac':MAC});assert 'item assigned Start assigned - Workshop' in m.text
