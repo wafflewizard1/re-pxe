@@ -53,7 +53,7 @@ Requires=docker.service
 [Service]
 Type=simple
 User={username}
-WorkingDirectory="{root}"
+WorkingDirectory={root}
 ExecStart=/usr/bin/python3 "{root}/deploy/update_agent.py" --root "{root}"
 Restart=on-failure
 RestartSec=5

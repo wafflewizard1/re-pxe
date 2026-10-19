@@ -24,8 +24,9 @@ repository without an interactive login. Docker and GitHub network access are
 needed while building. Initial setup may take several minutes.
 
 If setup already published `pxe/snponly.efi` and then failed because
-`re-pxe-updater.service` was not loaded, pull the installer fix and retry just
-the updater installation from that same checkout:
+`re-pxe-updater.service` was not loaded or had a bad unit file setting, pull
+the installer fixes and retry just the updater installation from that same
+checkout:
 
 ```sh
 git pull --ff-only

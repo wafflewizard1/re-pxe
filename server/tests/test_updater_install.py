@@ -3,20 +3,24 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 from types import SimpleNamespace
 
 import pytest
 
 
+run_system_command = subprocess.run
+
+
 @pytest.fixture
-def installation(tmp_path, monkeypatch):
+def installation(tmp_path, monkeypatch, request):
     deploy = Path(__file__).resolve().parents[2] / 'deploy'
     monkeypatch.syspath_prepend(str(deploy))
     spec = importlib.util.spec_from_file_location('installer_test', deploy / 'install_updater.py')
     installer = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(installer)
-    root = tmp_path / 'installation'
+    root = tmp_path / getattr(request, 'param', 'installation')
     (root / 'deploy').mkdir(parents=True)
     (root / 'deploy/.env').write_text('REPXE_ADDRESS=192.0.2.1\n')
     monkeypatch.setattr(installer, 'UNIT_PATH', tmp_path / 'updater.service')
@@ -48,6 +52,21 @@ def installation(tmp_path, monkeypatch):
 
     monkeypatch.setattr(installer.subprocess, 'run', run)
     return installer, root, calls, failures
+
+
+@pytest.mark.skipif(not shutil.which('systemd-analyze'), reason='systemd validator is unavailable')
+@pytest.mark.parametrize('installation', ['installation', 'installation with spaces'], indirect=True)
+def test_generated_service_passes_systemd_validation(installation):
+    installer, root, calls, failures = installation
+    installer.install(root, 'james')
+    # A private dependency stub avoids requiring Docker to be installed or running.
+    docker = installer.UNIT_PATH.with_name('docker.service')
+    docker.write_text('[Service]\nExecStart=/bin/true\n')
+    result = run_system_command(
+        ['systemd-analyze', '--man=no', '--generators=no', 'verify', str(installer.UNIT_PATH)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize('stop_result', [0, 5])
