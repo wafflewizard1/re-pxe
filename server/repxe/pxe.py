@@ -1,5 +1,5 @@
 """PXE tickets, device-scoped sessions and live dashboard projections."""
-from . import driver_management, file_workspace, workflows, routines
+from . import driver_management, file_workspace, workflows, routines, wimboot_assets
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -164,8 +164,9 @@ def install(app, store, Role, allow, boot_options_for, profile_artifacts, create
             db.execute('UPDATE clients SET profile_override=? WHERE id=?',(spec.profile_id,uid))
         return {'clientId':uid,'profileId':spec.profile_id}
 
-    def available():
+    def available(*, optional=False):
         path=store().root/'boot/pxe/current.json'
+        if optional and not path.is_file():return None
         if not path.is_file():raise HTTPException(503,'PXE media not published')
         media=json.loads(path.read_text())
         if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',media['version']):raise HTTPException(503,'Invalid PXE media')
@@ -241,7 +242,7 @@ def install(app, store, Role, allow, boot_options_for, profile_artifacts, create
         workflow_script,workflow_run=(None,None) if routine_handled else workflows.boot_decision(store(),mac,address)
         if workflow_script:
             return PlainTextResponse(workflow_script,headers={'Cache-Control':'no-store'})
-        media=available()
+        media=available(optional=bool(routine_run))
         if custom and not workflow_run and file_workspace.boot_settings(store())['enabled']:
             # Completion guard above applies to custom menus as well. No device
             # enrollment/ticket is created until managed imaging is selected.
@@ -258,6 +259,17 @@ chain ${{re-pxe-server}}/custom/scripts/menu.ipxe || chain ${{re-pxe-server}}/px
                        (uid,mac.lower(),hashed(ticket),(datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat(),created,created))
             if workflow_run:workflows.bind_boot(db,uid,workflow_run)
             if routine_run:routines.bind_boot(db,uid,routine_run)
+        if media is None:
+            with store().db() as db:
+                run = routines.for_boot(db, uid)
+                step = json.loads(run['spec'])['steps'][run['step']]
+                image, _ = profile_artifacts(db, step['profile'])
+            return PlainTextResponse(f'''#!ipxe
+kernel --name wimboot http://{address}:8089/pxe/routines/wimboot quiet index={image['image_index']}
+initrd --name re-pxe-boot.json http://{address}:8089/pxe/config/{ticket} re-pxe-boot.json
+initrd --name boot.wim http://{address}:8089/pxe/routines/image/{ticket} boot.wim
+boot
+''',headers={'Cache-Control':'no-store'})
         directory=media.get('directory',media['version'])
         if not re.fullmatch(r'(candidate-)?[0-9]+\.[0-9]+\.[0-9]+(-[a-f0-9]{12})?',directory):raise HTTPException(503,'Invalid PXE path')
         base=f'http://{address}:8089/pxe/{directory}'
@@ -270,6 +282,40 @@ initrd --name re-pxe-boot.json http://{address}:8089/pxe/config/{ticket} re-pxe-
 initrd --name boot.wim {base}/boot.wim boot.wim
 boot
 ''',headers={'Cache-Control':'no-store'})
+
+    @app.get('/pxe/routines/wimboot')
+    def uploaded_wim_loader():
+        path = wimboot_assets.ASSETS / 'wimboot'
+        if not path.is_file() or wimboot_assets.digest(path) != wimboot_assets.BINARY_SHA256:
+            raise HTTPException(503, 'Bundled wimboot is missing or damaged; rebuild the server image')
+        return FileResponse(path, media_type='application/octet-stream', headers={'Cache-Control':'no-store'})
+
+    @app.get('/pxe/routines/wimboot/{asset}')
+    def uploaded_wim_loader_source(asset: str):
+        if asset not in ('wimboot-source.tar.gz', 'COPYING-wimboot', 'manifest.json'):
+            raise HTTPException(404, 'Asset not found')
+        path = wimboot_assets.ASSETS / asset
+        if not path.is_file():raise HTTPException(404, 'Asset not found')
+        return FileResponse(path, media_type='application/octet-stream', filename=asset)
+
+    @app.get('/pxe/routines/image/{ticket}')
+    def uploaded_wim_image(ticket: str):
+        with store().db() as db:
+            row = db.execute('SELECT * FROM clients WHERE ticket_hash=?', (hashed(ticket),)).fetchone()
+            if not row or row['ticket_expires'] <= timestamp() or row['token_hash']:
+                raise HTTPException(401, 'Boot ticket expired or consumed')
+            run = routines.for_boot(db, row['id'])
+            if not run or run['stage'] != 'windows-boot' or run['client_id'] != row['id']:
+                raise HTTPException(409, 'Routine Windows boot is no longer active')
+            step = json.loads(run['spec'])['steps'][run['step']]
+            current = db.execute('SELECT enabled FROM deployment_profiles WHERE id=?', (step['profile_id'],)).fetchone()
+            if not current or not current['enabled']:raise HTTPException(409, 'Routine configuration withdrawn')
+            image, _ = profile_artifacts(db, step['profile'])
+        path = store().root / 'images/published' / image['id'] / 'image.wim'
+        if not path.is_file() or path.stat().st_size != image['size']:
+            raise HTTPException(409, 'Published WIM is unavailable')
+        return FileResponse(path, media_type='application/octet-stream', filename='boot.wim',
+                            headers={'Cache-Control':'no-store'})
 
     @app.get('/pxe/config/{ticket}')
     def boot_config(ticket: str):

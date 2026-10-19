@@ -2,6 +2,7 @@
 from pathlib import Path
 import argparse, gzip, hashlib, json, shutil, subprocess, tarfile, tempfile, urllib.request
 ROOT = Path(__file__).resolve().parent
+from repxe.wimboot_assets import prepare as prepare_wimboot
 ISO_URL = 'https://github.com/PartialVolume/shredos.x86_64/releases/download/v2025.11_31_x86-64_0.42/shredos-2025.11_31_x86-64_v0.42_20260716.iso'
 ISO_SHA = '8b731180f9c00f488fcf65dd25f624bfb8445f0096be58d735def4d469d830a6'
 ISO_SIZE = 360710144
@@ -26,6 +27,7 @@ def fetch(url, path, expected, size=None, cache=None):
         raise ValueError('Pinned asset integrity differs: ' + path.name)
 
 def prepare(assets, cache=None):
+    prepare_wimboot(assets / 'wimboot')
     nwipe = assets / 'nwipe'
     manifest = json.loads((nwipe / 'manifest.json').read_text())
     if digest(nwipe / 'bundle.cpio.gz') != manifest['bundle_sha256']:

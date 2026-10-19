@@ -18,6 +18,7 @@
 *.exe
 *.dll
 /server/repxe/assets/shredos/
+/server/repxe/assets/wimboot/
 /server/repxe/assets/nwipe/source.tar.gz
 /.venv/
 *.driver-backup

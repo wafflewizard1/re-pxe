@@ -66,11 +66,9 @@ def test_published_delay_refresh_and_graphics_defaults(lab):
     assert '--timeout' not in c.get('/pxe/boot.ipxe',params={'mac':'52:54:00:12:34:56'}).text
 
 
-def test_handoff_requires_updated_media_and_is_pinned_to_selection(lab):
+def test_handoff_checks_the_enrolled_client_and_is_pinned_to_selection(lab):
     c,root,p=lab;install_media(root);uid=make(c,p);r=c.get('/api/routines',headers=auth()).json()['routines'][0];options=FinishOptions(save_report_desktop=True).model_dump();r['draft']['steps'][1]['finish_options']=options
     saved=c.put('/api/routines/'+uid,headers=auth(),json={'spec':r['draft'],'expected_generation':r['generation']}).json()
-    assert c.post('/api/routines/'+uid+'/publish',headers=auth(),json={'expected_generation':saved['generation']}).status_code==409
-    path=root/'boot/pxe/current.json';metadata=json.loads(path.read_text());metadata['version']='0.13.0';path.write_text(json.dumps(metadata))
     assert c.post('/api/routines/'+uid+'/publish',headers=auth(),json={'expected_generation':saved['generation']}).status_code==200
     select(c);ticket=managed_ticket(c)
     body={'manufacturer':'QEMU','model':'Lab','managed_selection':True,'client_version':'0.12.17','targets':[{'identity':'serial:LAB-001','size_bytes':68719476736}]}

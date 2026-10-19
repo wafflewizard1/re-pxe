@@ -1,6 +1,21 @@
 # Windows client and WinPE
 
-Windows routines need **two separate images**:
+Windows routines can publish without a selected or validated PXE media release.
+Select your published WIM in an enabled Windows preset and publish the routine.
+If no PXE bundle is selected, the server attempts to boot that uploaded WIM
+directly through bundled iPXE wimboot, using the preset's selected image index.
+The WIM is served using a temporary ticket scoped to that routine run.
+
+Your image controls boot compatibility, startup scripts and completion behavior.
+The server does not certify that a published installation WIM can run as a RAM
+boot image. Direct boot does not add the re-pxe client to your image or mark the
+routine complete automatically. Bootable custom WinPE images can provide their
+own startup; a regular install.wim remains usable as an installation image with
+the optional managed workflow below.
+
+## Optional managed deployment
+
+The managed re-pxe installation workflow uses **two separate images**:
 
 - `install.wim` is the Windows image to install. An AMD64 `install.wim` from
   Windows installation media is the right type of file; choose and review its
@@ -10,8 +25,8 @@ Windows routines need **two separate images**:
 
 Uploading `install.wim` and running `deploy/setup.py` do not create WinPE. Setup
 publishes the iPXE loader and includes ShredOS, so erasure-only routines can run
-without Windows media. A Windows routine remains a saved draft until validated
-WinPE is published. The portal does not build or publish WinPE for you.
+without Windows media. A separately selected WinPE bundle is used when present,
+regardless of its validation flag. The portal does not build Microsoft WinPE.
 
 ## Build the client and WinPE
 
@@ -93,8 +108,8 @@ python3 tools/publish_pxe.py \
 
 These helpers verify artifacts and retain immutable existing releases. Do not
 manually create or edit `data/boot/pxe/current.json` to bypass the media check.
-Return to **Setup wizard → Components** and check that Windows PXE boot media
-shows **Validated**, then publish your existing routine draft. DHCP stays on
+Return to **Setup wizard → Components** and publish your existing routine draft.
+The media validation flag does not gate routine publication. DHCP stays on
 `pxe/snponly.efi`; no new DHCP filename is required.
 
 ## Prepare the installation image and routine

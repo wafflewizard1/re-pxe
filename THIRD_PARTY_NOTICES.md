@@ -17,7 +17,12 @@
   The build publishes the matching patched source and bootstrap beside the loader.
   License: `deploy/pxe/COPYING-ipxe`.
 - **wimboot**: GPL-2.0-or-later, pinned 2.9.0. The staging tool retains its matching
-  source archive and metadata. License: `deploy/pxe/COPYING-wimboot`.
+  source archive and metadata. Server builds also package the verified public
+  binary and corresponding source for direct uploaded-WIM boot. They are served
+  at `/pxe/routines/wimboot` and
+  `/pxe/routines/wimboot/wimboot-source.tar.gz`, with the license and manifest
+  alongside. Upstream: https://github.com/ipxe/wimboot and https://ipxe.org/wimboot.
+  License: `deploy/pxe/COPYING-wimboot`.
 - **nlohmann/json** and **pugixml**: MIT licenses, retained under `client/third_party`.
 - Python and container dependencies retain their upstream licenses. Server versions
   are pinned in `server/requirements.txt`; container dependencies are declared in

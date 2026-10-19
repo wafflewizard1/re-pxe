@@ -242,13 +242,13 @@ test('portal update controls handle restart disconnection and recovery',async()=
  f.context.fetch=async()=>({ok:true,status:200,json:async()=>({enabled:true,busy:false,phase:'failed',recovery_required:true,detail:'Recover previous version'})});await f.call('refreshPortalUpdates()');assert.equal(f.element('update-recover').hidden,false);assert.equal(f.element('update-recover').disabled,false);assert.equal(f.element('update-check').disabled,true);
  f.call('signedOut()');assert.equal(f.call('portalUpdateState'),null);
 });
-test('Windows wizard requires WinPE even after install.wim and an enabled preset are published',()=>{
+test('Windows wizard accepts a published WIM and enabled preset without validated PXE media',()=>{
  const f=wizardFixture();f.call('wizardFixtureData.images=[{name:"Windows USB install.wim",image_index:1,selected_image:{build:"26300"}}];wizardFixtureData.configs=[{enabled:true}];wizardFixtureData.server.boot=null;setWizardStep(3)');
- assert.equal(f.call('wizardReady()[3]'),false);assert.equal(f.call('wizardReady()[5]'),false);assert.equal(f.element('wizard-next').disabled,true);
- assert.match(f.element('wizard-body').innerHTML,/Not published/);assert.match(f.element('wizard-body').innerHTML,/Uploading install.wim/);assert.match(f.element('wizard-body').innerHTML,/data-guide="windows-media"/);
- f.call('wizardFixtureData.server.boot={version:"0.13.3",validated:false};renderWizard()');assert.equal(f.call('wizardReady()[3]'),false);assert.match(f.element('wizard-body').innerHTML,/Testing/);
+ assert.equal(f.call('wizardReady()[3]'),true);assert.equal(f.call('wizardReady()[5]'),true);assert.equal(f.element('wizard-next').disabled,false);
+ assert.match(f.element('wizard-body').innerHTML,/Uploaded WIM via wimboot/);assert.match(f.element('wizard-body').innerHTML,/image controls its startup/);assert.match(f.element('wizard-body').innerHTML,/data-guide="windows-media"/);
+ f.call('wizardFixtureData.server.boot={version:"0.13.3",validated:false};renderWizard()');assert.equal(f.call('wizardReady()[3]'),true);assert.match(f.element('wizard-body').innerHTML,/Selected PXE bundle/);
  f.call('wizardFixtureData.server.boot.validated=true;renderWizard()');assert.equal(f.call('wizardReady()[3]'),true);assert.equal(f.call('wizardReady()[5]'),true);assert.equal(f.element('wizard-next').disabled,false);
- f.call('wizardFixtureData.server.boot.validated=false;setWizardStep(5)');assert.match(f.element('wizard-body').innerHTML,/Return to Components/);assert.equal(f.element('wizard-next').disabled,true);
+ f.call('wizardFixtureData.server.boot.validated=false;setWizardStep(5)');assert.doesNotMatch(f.element('wizard-body').innerHTML,/Return to Components/);assert.equal(f.element('wizard-next').disabled,false);
 });
 test('erasure-only wizard does not require Windows images or WinPE',()=>{
  const f=wizardFixture();f.call('wizardFixtureData.server.boot=null;wizardFixtureData.dashboard.routines={enabled:true,default_id:"wipe",choices:[{id:"wipe",has_windows:false}]};wizardFixtureData.routines={routines:[{id:"wipe",draft:{steps:[{kind:"erase"}]}}]};wizardFixtureData.capabilities=[{status:"installed"}];setWizardStep(3)');
@@ -256,7 +256,7 @@ test('erasure-only wizard does not require Windows images or WinPE',()=>{
 });
 test('Windows media guidance is reachable from the routine editor and explains publication',()=>{
  const f=fixture();f.call('routineDraft={steps:[{kind:"windows"}]};routineEditorStatus()');assert.equal(f.element('routine-windows-media').hidden,false);
- f.call('activeGuide="windows-media";renderGuides()');assert.match(f.element('guide-article').innerHTML,/install.wim/);assert.match(f.element('guide-article').innerHTML,/Build-WinPE.ps1/);assert.match(f.element('guide-article').innerHTML,/publish_pxe.py --validated/);
+ f.call('activeGuide="windows-media";renderGuides()');assert.match(f.element('guide-article').innerHTML,/uploaded WIM/);assert.match(f.element('guide-article').innerHTML,/Build-WinPE.ps1/);assert.match(f.element('guide-article').innerHTML,/publish_pxe.py --validated/);
  f.call('routineDraft={steps:[{kind:"erase"}]};routineEditorStatus()');assert.equal(f.element('routine-windows-media').hidden,true);
 });
 test('wizard checks published content and policy instead of treating validated uploads as complete',()=>{

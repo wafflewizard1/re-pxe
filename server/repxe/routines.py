@@ -265,14 +265,6 @@ def validate_runtime(store, db, spec, profile_artifacts):
             current = db.execute('SELECT enabled FROM deployment_profiles WHERE id=?', (s['profile_id'],)).fetchone()
             if not current or not current['enabled']: raise HTTPException(409, 'The routine Windows configuration has been withdrawn')
             profile_artifacts(db, s['profile'])
-            p = store.root / 'boot/pxe/current.json'
-            if not p.is_file() or not json.loads(p.read_text()).get('validated'):
-                raise HTTPException(409, 'Windows PXE boot media is not ready. Uploading install.wim only supplies the Windows installation image. Build WinPE with the re-pxe client and publish it using tools/publish_pxe.py --validated after acceptance testing. See Guides > Windows PXE setup or docs/windows.md; your routine remains saved as a draft.')
-            if s['target_policy'] in ('first-disk','manual'):
-                version=tuple(map(int,json.loads(p.read_text()).get('version','0.0.0').split('.')))
-                if version < (0,12,11): raise HTTPException(409,'Publish validated WinPE 0.12.11 or newer before enabling routine disk selection')
-            if not s.get('verify_image',True) and tuple(map(int,json.loads(p.read_text()).get('version','0.0.0').split('.'))) < (0,12,16):raise HTTPException(409,'Publish validated WinPE 0.12.16 or newer before disabling Windows image verification')
-            if s.get('finish_options') is not None and tuple(map(int,json.loads(p.read_text()).get('version','0.0.0').split('.'))) < (0,13,0):raise HTTPException(409,'Publish validated WinPE 0.13.0 or newer before enabling Finish cleanup, customer reports or local accounts')
 
 
 def event(db, row, stage, detail, step=None):

@@ -2,6 +2,7 @@ FROM python:3.14-slim-bookworm AS builtin
 RUN apt-get update && apt-get install -y --no-install-recommends libarchive-tools ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 COPY prepare_builtin.py .
+COPY repxe/wimboot_assets.py ./repxe/wimboot_assets.py
 COPY repxe/assets ./repxe/assets
 RUN python prepare_builtin.py
 
