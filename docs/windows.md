@@ -104,6 +104,13 @@ review its validation and publish it. Create an enabled Windows preset, then use
 that preset in a Windows step of a published routine. Driver packages can be added
 through the portal; exact-model reviewed drivers and Windows Update are supported.
 
+The Windows image upload's SHA-256 field is optional. Leave it blank and the
+server calculates and records the hash while validating the uploaded WIM.
+Providing an expected hash also checks that the uploaded bytes match it and
+enables automatic portal upload resume. Without an expected hash, reselecting a
+file starts a new upload so a different file with the same name and size cannot
+be mixed with a partial upload. Driver ZIP uploads still require a hash.
+
 Native capture/deployment rejects running Windows. Build on a Windows workstation;
 perform capture/deployment from WinPE on an explicitly selected target. For automated
 tests use only disposable file-backed VM disks, never physical host storage.

@@ -216,6 +216,20 @@ test('dismissing the default-password notice does not change account state and r
  f.call('updatePasswordNotice()');assert.equal(f.element('default-password-notice').hidden,true);f.call('clearInterfaceSession();updatePasswordNotice()');assert.equal(f.element('default-password-notice').hidden,false);
 });
 function wizardFixture(){const f=fixture();f.context.wizardFixtureData={server:{boot:{version:'0.13.3',validated:true},storage:{free:100},endpoints:{tftp_server:'server',boot_filename:'pxe/test.efi',website:'https://server',boot_http:'http://server'}},dashboard:f.dashboard,images:[],drivers:[],configs:[],queue:[{status:'ready',spec:{kind:'image'}}]};f.call('loadWizardProgress();wizardData=wizardFixtureData');return f;}
+test('hash input is optional for WIM and required for driver ZIP uploads',()=>{
+ const f=fixture();f.call('$("kind").value="image";updateUploadKind()');assert.equal(f.element('hash').required,false);assert.match(f.element('hash-help').textContent,/server calculates/);
+ f.call('$("kind").value="drivers";updateUploadKind()');assert.equal(f.element('hash').required,true);assert.match(f.element('hash-label').textContent,/required/);
+});
+for(const hash of ['', 'a'.repeat(64)])test('WIM upload '+(hash?'resumes only the matching expected hash':'without a hash starts a fresh upload'),async()=>{
+ const f=fixture();f.context.expectedHash=hash;f.call('refresh=async()=>{};$("kind").value="image";$("hash").value=expectedHash;$("image-index").value="1";uploads=[{id:"old-upload",status:"receiving",received:4,spec:{kind:"image",filename:"install.wim",size:8,sha256:expectedHash||null}}]');
+ f.element('file').files=[{name:'install.wim',size:8,slice:(start,end)=>new Blob(['abcdefgh'.slice(start,end)])}];
+ f.context.fetch=async(path,options)=>{f.requests.push({path,options});return {ok:true,status:200,json:async()=>path==='/api/uploads'?{id:'new-upload',received:0}:path==='/api/uploads/old-upload'?{id:'old-upload',received:4}:path.endsWith('/content')?{received:8}:{status:'ready'}};};
+ await f.element('upload-form').listeners.submit({preventDefault(){}});
+ const create=f.requests.find(r=>r.path==='/api/uploads'),content=f.requests.find(r=>r.path.endsWith('/content'));
+ if(hash){assert.equal(create,undefined);assert.equal(content.path,'/api/uploads/old-upload/content');assert.equal(content.options.headers['Upload-Offset'],'4');}
+ else{assert.equal(JSON.parse(create.options.body).sha256,null);assert.equal(content.path,'/api/uploads/new-upload/content');assert.equal(content.options.headers['Upload-Offset'],'0');assert.ok(!f.requests.some(r=>r.path==='/api/uploads/old-upload'));}
+ assert.equal(f.element('progress').textContent,'Windows image ready for review.');
+});
 test('portal update requires confirmation and pins the displayed revision',async()=>{
  const f=fixture();f.call('renderPortalUpdates({enabled:true,busy:false,can_update:true,current_revision:"a".repeat(40),target_revision:"b".repeat(40),summary:"<release>"})');
  assert.equal(f.element('update-apply').disabled,false);assert.equal(f.element('update-summary').textContent,'<release>');

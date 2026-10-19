@@ -82,7 +82,7 @@ class Upload(Model):
     name: str = Field(min_length=1, max_length=120)
     filename: str = Field(pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$')
     size: int = Field(gt=0)
-    sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    sha256: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
     architecture: Literal['amd64'] = 'amd64'
     image_index: int = Field(default=1, ge=1, le=100)
     make: str = Field(default='', max_length=120)
@@ -92,8 +92,17 @@ class Upload(Model):
     boot_critical_inf_paths: list[str] = Field(default_factory=list, max_length=256)
     model_tags: list[ModelTag] = Field(default_factory=list, max_length=64)
 
+    @field_validator('sha256', mode='before')
+    @classmethod
+    def optional_hash(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
     @model_validator(mode='after')
     def image_size(self):
+        if self.kind == 'drivers' and self.sha256 is None:
+            raise ValueError('Driver uploads require a SHA-256 hash')
         if self.kind == 'image' and self.size > 100 * 1024**3:
             raise ValueError('Windows images must be at most 100 GiB')
         return self
@@ -540,7 +549,8 @@ def create_app(data_root=None, tokens=None, *, secure_cookies=True, allow_http=N
             with store().db() as db:
                 db.execute("UPDATE uploads SET status='validating' WHERE id=?", (uid,))
             try:
-                if digest(path) != spec['sha256']:
+                actual_sha256 = digest(path)
+                if spec.get('sha256') and actual_sha256 != spec['sha256']:
                     raise ValueError('SHA-256 does not match')
                 meta = (verify_wim(path, spec) if spec['kind'] == 'image' else
                         unpack_drivers(path, store().root / 'uploads/staging' / f'{uid}.drivers'))
@@ -558,8 +568,9 @@ def create_app(data_root=None, tokens=None, *, secure_cookies=True, allow_http=N
                 with store().db() as db:
                     db.execute("UPDATE uploads SET status='rejected', error=? WHERE id=?", (message, uid))
                 raise HTTPException(422, message)
+            spec['sha256'] = actual_sha256
             with store().db() as db:
-                db.execute("UPDATE uploads SET status='ready', metadata=?, error=NULL WHERE id=?", (json.dumps(meta), uid))
+                db.execute("UPDATE uploads SET status='ready', spec=?, metadata=?, error=NULL WHERE id=?", (json.dumps(spec), json.dumps(meta), uid))
             if spec['kind']=='drivers':
                 return publish_driver_locked(uid, role)
             return public_upload(store().upload(uid, role))
