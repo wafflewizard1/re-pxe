@@ -12,6 +12,9 @@ import uuid
 from update_agent import atomic
 
 
+UNIT_PATH = Path('/etc/systemd/system/re-pxe-updater.service')
+
+
 def install(root, username):
     if sys.version_info < (3, 12):
         raise SystemExit('Portal updates require Python 3.12 or newer on the host.')
@@ -61,10 +64,16 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 '''
-    Path('/etc/systemd/system/re-pxe-updater.service').write_text(unit)
+    UNIT_PATH.write_text(unit)
     subprocess.run(['systemctl', 'daemon-reload'], check=True)
     subprocess.run(['systemctl', 'enable', 're-pxe-updater.service'], check=True)
-    subprocess.run(['systemctl', 'stop', 're-pxe-updater.service'], check=True)
+    stopped = subprocess.run(['systemctl', 'stop', 're-pxe-updater.service'],
+                             capture_output=True, text=True)
+    # systemctl returns 5 when the service is not loaded on a first install.
+    # Keep all other failures fatal before replacing updater state.
+    if stopped.returncode not in (0, 5):
+        sys.stderr.write(stopped.stderr or '')
+        stopped.check_returncode()
     revision = subprocess.check_output(['git', '-c', f'safe.directory={root}', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
     for name in ('installed.json', 'state.json'):
         path = base / name

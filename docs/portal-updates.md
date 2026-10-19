@@ -23,6 +23,19 @@ user must already have Docker access and be able to fetch the official GitHub
 repository without an interactive login. Docker and GitHub network access are
 needed while building. Initial setup may take several minutes.
 
+If setup already published `pxe/snponly.efi` and then failed because
+`re-pxe-updater.service` was not loaded, pull the installer fix and retry just
+the updater installation from that same checkout:
+
+```sh
+git pull --ff-only
+sudo python3 deploy/install_updater.py --root "$PWD" --user "$(id -un)"
+```
+
+Run these commands as the normal installation user. The installer accepts a
+missing previous service on first installation and still requires the new
+service to start successfully.
+
 The portal runs without the Docker socket, host shell access or sudo. Its
 separate control mount exposes only the updater's local socket and request drain
 lock. The host service accepts checks, a confirmed pinned update, and recovery.
