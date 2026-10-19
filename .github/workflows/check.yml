@@ -20,3 +20,4 @@ jobs:
       - run: node server/tests/dashboard.mjs
       - run: cmake -S client -B .local/client-check -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build .local/client-check && ctest --test-dir .local/client-check --output-on-failure
       - run: docker build -t re-pxe-check server
+      - run: python tools/build_client.py

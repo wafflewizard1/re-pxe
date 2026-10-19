@@ -3,7 +3,8 @@
 import subprocess
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
-subprocess.run(['docker', 'build', '-t', 're-pxe-client-build', str(ROOT/'client')], check=True)
+subprocess.run(['docker', 'build', '-f', str(ROOT/'client/Dockerfile.build'),
+                '-t', 're-pxe-client-build', str(ROOT/'client')], check=True)
 out = ROOT/'.local/client'; out.mkdir(parents=True, exist_ok=True)
 container = subprocess.check_output(['docker','create','re-pxe-client-build'],text=True).strip()
 try:
