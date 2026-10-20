@@ -206,7 +206,7 @@ Json inventory(){
             {"size_bytes",disk.at("sizeBytes")},{"removable",disk.at("removable")},
             {"bus_type",bus==17?"NVMe":bus==11?"SATA":bus==7?"USB":bus==1?"SCSI":bus==8?"RAID":"Other"}});
     }
-    return {{"specs",specs},{"manufacturer",bios(L"SystemManufacturer")},{"model",bios(L"SystemProductName")},{"schemaVersion",1},{"toolVersion","0.13.4"},{"readOnly",true},{"environment",{{"winpe",winpe()},{"administrator",admin()},
+    return {{"specs",specs},{"manufacturer",bios(L"SystemManufacturer")},{"model",bios(L"SystemProductName")},{"schemaVersion",1},{"toolVersion","0.13.5"},{"readOnly",true},{"environment",{{"winpe",winpe()},{"administrator",admin()},
         {"firmware",firmware==FirmwareTypeUefi?"uefi":firmware==FirmwareTypeBios?"bios":"unknown"},
         {"architecture",system.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64?"amd64":"unsupported"},
         {"executable",utf8(executable())}}},{"disks",disks},{"volumes",volumes},{"warnings",warnings}};
@@ -516,7 +516,7 @@ Json deploy_internal(Json config,const std::filesystem::path& config_path,bool e
     plan["blankTargetVerified"]=blank_only;plan["targetWillBeFormatted"]=target_policy=="format-selected-disk";plan["layoutBytes"]=parts;if(!execute)return plan;
     Handle mutex(CreateMutexW(nullptr,TRUE,L"Global\\repxeDeployment"));if(!mutex)fail("Create deployment lock");if(GetLastError()==ERROR_ALREADY_EXISTS)throw std::runtime_error("Another deployment owns the deployment lock");
     auto id=sha256(config_path).substr(0,16);auto jobs=std::filesystem::path(wide(config.at("jobDirectory")));auto job=jobs/(L"deploy-"+wide(id)+L".json");if(std::filesystem::exists(job))throw std::runtime_error("Deployment job already exists; automatic destructive retries are refused");
-    Json state={{"schemaVersion",1},{"toolVersion","0.13.4"},{"id",id},{"stage","preflight"},{"startedUtc",utc_now()},{"plan",plan},{"history",Json::array()},{"diskWritesPerformed",false}};
+    Json state={{"schemaVersion",1},{"toolVersion","0.13.5"},{"id",id},{"stage","preflight"},{"startedUtc",utc_now()},{"plan",plan},{"history",Json::array()},{"diskWritesPerformed",false}};
     auto stage=[&](const char* name){state["stage"]=name;state.erase("progressPercent");if(std::string(name)=="applying-image")state["progressPercent"]=0;state["history"].push_back({{"stage",name},{"utc",utc_now()}});write_json(job,state);std::cerr<<"Deployment stage: "<<name<<"\n";if(progress)progress(state);};
     auto tool=[&](const char* name,std::vector<std::wstring> args,const std::string& input=""){auto log=jobs/(L"deploy-"+wide(id)+L"-"+wide(name)+L".log");std::function<void(int)> observe;
         if(std::string(name)=="apply")observe=[&](int percent){state["progressPercent"]=percent;state["imageApplyPercent"]=percent;write_json(job,state);if(progress)progress(state);};
@@ -780,7 +780,7 @@ void stage_completion(const std::filesystem::path& volume,const Json& target,con
     std::filesystem::create_directories(root);protect_path(root);
     for(size_t i=0;i<previous_answers.size();++i){auto backup=root/(L"reference-unattend-"+std::to_wstring(i)+L".xml");std::filesystem::copy_file(previous_answers[i],backup);protect_path(backup);std::filesystem::remove(previous_answers[i]);}
     auto exe=root/L"re-pxe.exe";std::filesystem::copy_file(executable(),exe);protect_path(exe);
-    Json state={{"schemaVersion",1},{"toolVersion","0.13.4"},{"id",id},{"stage","awaiting-windows"},{"target",target},{"diskGuid",guid_text(disk_id)},{"windowsPartitionGuid",guid_text(partition_id)},
+    Json state={{"schemaVersion",1},{"toolVersion","0.13.5"},{"id",id},{"stage","awaiting-windows"},{"target",target},{"diskGuid",guid_text(disk_id)},{"windowsPartitionGuid",guid_text(partition_id)},
         {"clientSha256",sha256(exe)},{"kernelSha256",sha256(volume/L"Windows\\System32\\ntoskrnl.exe")},{"imageSha256",config.at("sha256")},{"imageIndex",config.value("imageIndex",1)},
         {"history",Json::array()},{"bootObservations",Json::array()},{"driverActions",Json::array()},{"deliveryStatus","local-only"},{"generalizationPerformed",false}};
     if(config.value("driverConsole",false)){state["driverConsole"]=true;state["driverAutomaticAttempted"]=false;if(!config.contains("windowsUpdate"))state["windowsUpdateRegistry"]=pause_update_policy(volume/L"Windows");}

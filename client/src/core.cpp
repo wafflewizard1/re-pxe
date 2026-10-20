@@ -207,7 +207,10 @@ void validate_driver_manifest(const Json& m) {
         require(f.at("size").is_number_integer() && f.at("size")>0,"Driver file size must be positive");
         require(digest_valid(f.at("sha256").get<std::string>()),"Invalid driver file digest");
     }
-    const auto& infs=m.at("infPaths");require(infs.is_array() && !infs.empty() && infs.size()<=100,"Explicit INF selection required");std::set<std::string> selected;
+    const auto& infs=m.at("infPaths");
+    require(infs.is_array() && !infs.empty(),"Explicit INF selection required");
+    require(infs.size()<=files.size(),"Selected INF count exceeds driver package file count");
+    std::set<std::string> selected;
     for(const auto& value:infs){auto path=normalized(value.get<std::string>());require(path.ends_with(".INF") && paths.contains(path) && selected.insert(path).second,"Selected INF is missing or duplicated");}
     if(m.contains("bootCriticalInfPaths")){
         const auto& critical=m.at("bootCriticalInfPaths");require(critical.is_array() && critical.size()<=256,"Invalid boot-critical INF selection");
@@ -516,7 +519,7 @@ Json deployment_plan(const Json& config, const Json& inventory, const Json& imag
     const auto required = image_bytes + headroom + esp + msr + recovery + 4 * MiB;
     const auto capacity = target.at("sizeBytes").get<unsigned long long>();
     require(capacity >= required, "Target disk is too small for the image, layout and free-space reserve");
-    return {{"schemaVersion", 1}, {"toolVersion", "0.13.4"}, {"readOnly", true}, {"diskWritesPerformed", false},
+    return {{"schemaVersion", 1}, {"toolVersion", "0.13.5"}, {"readOnly", true}, {"diskWritesPerformed", false},
         {"config", config}, {"target", target}, {"image", selected_image}, {"sha256", actual_hash},
         {"resources", resources}, {"requiredBytes", required}, {"preserveOtherDisks", true},
         {"layout", Json::array({{{"role","efi"},{"filesystem","FAT32"},{"sizeMiB",260}},

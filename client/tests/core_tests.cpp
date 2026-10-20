@@ -102,7 +102,7 @@ try{
     bad_policy=automatic;bad_policy["managedSelection"]=false;rejects([&]{validate_pxe_automation(bad_policy,candidates);},"Require server-managed image selection");
     bad_policy=automatic;bad_policy["startDelaySeconds"]=0;validate_pxe_automation(bad_policy,candidates);check(true,"Permit an explicitly configured immediate start");
     auto plan=deployment_plan(base,hardware,wim,hash,paths);
-    check(plan["toolVersion"]=="0.13.4","Report current planner version");
+    check(plan["toolVersion"]=="0.13.5","Report current planner version");
     check(plan["readOnly"]==true && plan["diskWritesPerformed"]==false,"Planning must not perform writes");
     check(plan["target"]["number"]==1 && plan["preserveOtherDisks"]==true,"Resolve exactly the requested target");
     check(plan["executionAvailable"]==false,"Execution requires an explicit target policy");
@@ -176,6 +176,25 @@ try{
         {"files",Json::array({{{"path","driver.inf"},{"size",100},{"sha256",hash}},{{"path","driver.cat"},{"size",100},{"sha256",hash}}})},{"infPaths",Json::array({"driver.inf"})}};
     Json facts={{"manufacturer","QEMU"},{"model","Q35"},{"build","26300"}};
     check(driver_package_matches(package,facts),"Match reviewed package to exact hardware/build");
+    {
+        auto large=package;large["files"]=Json::array();large["infPaths"]=Json::array();
+        for(int i=0;i<501;++i){auto path="driver-"+std::to_string(i)+(i<132?".inf":".cat");large["files"].push_back({{"path",path},{"size",100},{"sha256",hash}});if(i<132)large["infPaths"].push_back(path);}
+        validate_driver_manifest(large);check(true,"Accept an HP-sized reviewed package with 132 explicit INFs and 501 files");
+        large["bootCriticalInfPaths"]=Json::array({"driver-131.inf"});
+        auto plan=offline_driver_plan({{"offlineDriverMode","all-reviewed"}},large);
+        check(plan.size()==132&&plan[0].at("inf")=="driver-131.inf"&&plan[0].at("required")==true&&plan[131].at("inf")=="driver-130.inf","Large packages retain every reviewed INF and service required drivers first");
+        auto invalid=large;invalid["infPaths"].push_back("DRIVER-0.INF");rejects([&]{validate_driver_manifest(invalid);},"Large packages still reject duplicate selected INFs");
+        invalid=large;invalid["infPaths"][131]="missing.inf";rejects([&]{validate_driver_manifest(invalid);},"Large packages still reject INFs outside the manifest");
+        for(const auto& empty:std::vector<Json>{Json::array(),Json(),Json("driver-0.inf")}){invalid=large;invalid["infPaths"]=empty;rejects([&]{validate_driver_manifest(invalid);},"Explicit nonempty INF arrays remain required");}
+        invalid=package;invalid["infPaths"]=Json::array({"driver.inf","other.inf","extra.inf"});
+        bool count_error=false;try{validate_driver_manifest(invalid);}catch(const std::exception& e){count_error=std::string(e.what())=="Selected INF count exceeds driver package file count";}
+        check(count_error,"Excess INF count reports the package limit instead of a missing selection");
+        large.erase("bootCriticalInfPaths");large["files"]=Json::array();large["infPaths"]=Json::array();
+        for(int i=0;i<10000;++i){auto path="driver-"+std::to_string(i)+".inf";large["files"].push_back({{"path",path},{"size",100},{"sha256",hash}});large["infPaths"].push_back(path);}
+        validate_driver_manifest(large);check(true,"Explicit INF selections support the full server archive limit of 10000 files");
+        large["files"].push_back({{"path","extra.inf"},{"size",100},{"sha256",hash}});large["infPaths"].push_back("extra.inf");
+        rejects([&]{validate_driver_manifest(large);},"Driver archive file count remains bounded at 10000");
+    }
     copy=package;copy["files"][1]["size"]=5*GiB;validate_driver_manifest(copy);check(true,"Accept large driver payload without fixed byte caps");
     copy["files"][1]["size"]=0;rejects([&]{validate_driver_manifest(copy);},"Driver payload sizes must stay positive");
     for(const auto* key:{"manufacturer","model","build"}){copy=facts;copy[key]="other";check(!driver_package_matches(package,copy),"Reject unrelated hardware/build package");}
