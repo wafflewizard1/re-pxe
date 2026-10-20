@@ -21,3 +21,10 @@ jobs:
       - run: cmake -S client -B .local/client-check -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build .local/client-check && ctest --test-dir .local/client-check --output-on-failure
       - run: docker build -t re-pxe-check server
       - run: python tools/build_client.py
+  windows-trust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S client -B .local/windows-trust -A x64
+      - run: cmake --build .local/windows-trust --config Release --target repxe_core_tests repxe_windows_trust_tests
+      - run: ctest --test-dir .local/windows-trust -C Release --output-on-failure -R "^(core|windows_trust)$"

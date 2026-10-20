@@ -23,6 +23,7 @@ Json powercfg_battery_health(const std::string& xml);
 inline constexpr unsigned long long MiB = 1024ULL * 1024;
 inline constexpr unsigned long long GiB = 1024ULL * MiB;
 std::string completion_action(const std::string& stage, bool new_boot, bool driver_problems);
+bool validate_completion_bindings(const Json& state,const std::string& installed_hash,const std::string& running_hash,const std::string& kernel_hash,bool trusted_kernel);
 std::string driver_fallback_action(bool problems, int attempts, int maximum, const std::string& last_status);
 Json driver_install_result(int exit_code);
 Json driver_attempt_result(int exit_code);

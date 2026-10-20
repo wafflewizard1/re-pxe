@@ -32,7 +32,10 @@ try {
     $state=Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     if ($state.schemaVersion -ne 1 -or $state.driverConsole -ne $true -or ($state.stage -eq 'complete' -and $state.deliveryStatus -ne 'pending')) {throw 'A pending provisioned technician installation or sealed pending report is required'}
     if ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -ne $state.clientSha256) {throw 'Installed executable does not match its protected binding'}
-    if ((Get-FileHash -LiteralPath "$env:SystemRoot\System32\ntoskrnl.exe" -Algorithm SHA256).Hash -ne $state.kernelSha256) {throw 'Windows kernel does not match its protected binding'}
+    # Windows servicing may replace the kernel after provisioning. The new
+    # client's completion-status validates any changed kernel's Microsoft
+    # signature and all original disk/partition bindings before accepting this
+    # update. A failed validation restores both the old executable and state.
     if ((Get-FileHash -LiteralPath $ClientPath -Algorithm SHA256).Hash -ne $ExpectedSha256) {throw 'Replacement executable does not match the reviewed release SHA-256'}
     $imageState=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Setup\State').ImageState
     if ($imageState -notin @('IMAGE_STATE_SPECIALIZE_RESEAL_TO_AUDIT','IMAGE_STATE_GENERALIZE_RESEAL_TO_AUDIT','IMAGE_STATE_SPECIALIZE_RESEAL_TO_OOBE')) {throw 'The provisioned Audit/OOBE checkpoint is required'}

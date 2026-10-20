@@ -63,6 +63,18 @@ void validate_resources(const Json& resources, int excluded_disk) {
 }
 }
 
+bool validate_completion_bindings(const Json& state,const std::string& installed_hash,const std::string& running_hash,const std::string& kernel_hash,bool trusted_kernel) {
+    require(state.at("schemaVersion")==1,"Unsupported completion state schema");
+    const auto client=state.at("clientSha256").get<std::string>(),kernel=state.at("kernelSha256").get<std::string>();
+    const std::regex hash("[0-9a-f]{64}");
+    require(std::regex_match(client,hash)&&std::regex_match(kernel,hash)&&std::regex_match(kernel_hash,hash),"Invalid completion binding hash");
+    require(installed_hash==client,"Installed re-pxe executable differs from its protected binding; use the installed-client updater");
+    require(running_hash==client,"Running re-pxe executable differs from its protected binding");
+    const bool changed=kernel_hash!=kernel;
+    require(!changed||trusted_kernel,"Windows kernel changed and its Microsoft signature could not be verified");
+    return changed;
+}
+
 std::string completion_action(const std::string& stage,bool new_boot,bool driver_problems) {
     if(stage=="awaiting-windows")return "checkpoint-reboot";
     if(stage=="reboot-pending") {
@@ -504,7 +516,7 @@ Json deployment_plan(const Json& config, const Json& inventory, const Json& imag
     const auto required = image_bytes + headroom + esp + msr + recovery + 4 * MiB;
     const auto capacity = target.at("sizeBytes").get<unsigned long long>();
     require(capacity >= required, "Target disk is too small for the image, layout and free-space reserve");
-    return {{"schemaVersion", 1}, {"toolVersion", "0.13.3"}, {"readOnly", true}, {"diskWritesPerformed", false},
+    return {{"schemaVersion", 1}, {"toolVersion", "0.13.4"}, {"readOnly", true}, {"diskWritesPerformed", false},
         {"config", config}, {"target", target}, {"image", selected_image}, {"sha256", actual_hash},
         {"resources", resources}, {"requiredBytes", required}, {"preserveOtherDisks", true},
         {"layout", Json::array({{{"role","efi"},{"filesystem","FAT32"},{"sizeMiB",260}},

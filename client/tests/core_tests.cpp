@@ -20,6 +20,20 @@ Json resources(){return Json::array({{{"role","image"},{"resolved",true},{"diskN
 }
 int main(int argc,char** argv){
     {
+        const std::string client(64,'a'),original_kernel(64,'b'),updated_kernel(64,'c');
+        Json state={{"schemaVersion",1},{"clientSha256",client},{"kernelSha256",original_kernel}};
+        check(!validate_completion_bindings(state,client,client,original_kernel,false),"Original reviewed kernel retains its exact binding");
+        check(validate_completion_bindings(state,client,client,updated_kernel,true),"Microsoft-verified kernel servicing permits post-reboot resume");
+        rejects([&]{validate_completion_bindings(state,client,client,updated_kernel,false);},"Changed unsigned or untrusted kernel is refused");
+        rejects([&]{validate_completion_bindings(state,updated_kernel,client,updated_kernel,true);},"Kernel servicing never authorizes a different installed client");
+        rejects([&]{validate_completion_bindings(state,client,updated_kernel,updated_kernel,true);},"Kernel servicing never authorizes a different running client");
+        auto bad=state;bad["schemaVersion"]=2;
+        rejects([&]{validate_completion_bindings(bad,client,client,updated_kernel,true);},"Unknown completion schema cannot resume");
+        bad=state;bad["kernelSha256"]="";
+        rejects([&]{validate_completion_bindings(bad,client,client,updated_kernel,true);},"Kernel servicing requires original image provenance");
+        rejects([&]{validate_completion_bindings(state,client,client,"",true);},"Missing current kernel is never trusted");
+    }
+    {
         Json disks=Json::array({{{"identity","serial:FIRST"}},{{"identity","serial:PINNED"}}});
         Json policy={{"automaticDiskSelection",true},{"targetIdentity","serial:PINNED"}};
         if(pxe_target_index(disks,policy)!=1)throw std::runtime_error("Pinned second target was ignored");
@@ -88,7 +102,7 @@ try{
     bad_policy=automatic;bad_policy["managedSelection"]=false;rejects([&]{validate_pxe_automation(bad_policy,candidates);},"Require server-managed image selection");
     bad_policy=automatic;bad_policy["startDelaySeconds"]=0;validate_pxe_automation(bad_policy,candidates);check(true,"Permit an explicitly configured immediate start");
     auto plan=deployment_plan(base,hardware,wim,hash,paths);
-    check(plan["toolVersion"]=="0.13.3","Report current planner version");
+    check(plan["toolVersion"]=="0.13.4","Report current planner version");
     check(plan["readOnly"]==true && plan["diskWritesPerformed"]==false,"Planning must not perform writes");
     check(plan["target"]["number"]==1 && plan["preserveOtherDisks"]==true,"Resolve exactly the requested target");
     check(plan["executionAvailable"]==false,"Execution requires an explicit target policy");

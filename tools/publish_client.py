@@ -12,7 +12,7 @@ import time
 import paramiko
 
 ROOT=Path(__file__).resolve().parents[1]
-VERSION='0.13.3'
+VERSION='0.13.4'
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)

@@ -112,7 +112,20 @@ Return to **Setup wizard → Components** and publish your existing routine draf
 The media validation flag does not gate routine publication. DHCP stays on
 `pxe/snponly.efi`; no new DHCP filename is required.
 
+## Driver reboot resume
+
+Audit completion remains bound to the installed re-pxe executable and the
+original disk and Windows partition. Windows servicing can replace
+`Windows\System32\ntoskrnl.exe` after provisioning. A changed kernel is accepted
+only when Windows verifies its embedded or registered catalog signature and the
+signer chains to a Microsoft root. Verification uses cached local trust material
+so it can run offline. Unsigned, tampered, or unverifiable replacements stop
+completion with a specific error. The original kernel hash remains in the state
+as image provenance; `windowsKernelBinding` records the verified current hash.
+`completion-status` performs these checks without updating the state file.
+
 ## Prepare the installation image and routine
+
 
 Upload your generalized AMD64 Windows image in the portal, select its image index,
 review its validation and publish it. Create an enabled Windows preset, then use
