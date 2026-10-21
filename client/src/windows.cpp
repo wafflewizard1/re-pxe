@@ -3,6 +3,7 @@
 #include <repxe/windows_trust.hpp>
 #include <repxe/operation_lock.hpp>
 #include <repxe/state_file.hpp>
+#include <repxe/completion_startup.hpp>
 #include <repxe/technician.hpp>
 #include <windows.h>
 #include <winioctl.h>
@@ -206,7 +207,7 @@ Json inventory(){
             {"size_bytes",disk.at("sizeBytes")},{"removable",disk.at("removable")},
             {"bus_type",bus==17?"NVMe":bus==11?"SATA":bus==7?"USB":bus==1?"SCSI":bus==8?"RAID":"Other"}});
     }
-    return {{"specs",specs},{"manufacturer",bios(L"SystemManufacturer")},{"model",bios(L"SystemProductName")},{"schemaVersion",1},{"toolVersion","0.13.5"},{"readOnly",true},{"environment",{{"winpe",winpe()},{"administrator",admin()},
+    return {{"specs",specs},{"manufacturer",bios(L"SystemManufacturer")},{"model",bios(L"SystemProductName")},{"schemaVersion",1},{"toolVersion","0.13.6"},{"readOnly",true},{"environment",{{"winpe",winpe()},{"administrator",admin()},
         {"firmware",firmware==FirmwareTypeUefi?"uefi":firmware==FirmwareTypeBios?"bios":"unknown"},
         {"architecture",system.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64?"amd64":"unsupported"},
         {"executable",utf8(executable())}}},{"disks",disks},{"volumes",volumes},{"warnings",warnings}};
@@ -516,7 +517,7 @@ Json deploy_internal(Json config,const std::filesystem::path& config_path,bool e
     plan["blankTargetVerified"]=blank_only;plan["targetWillBeFormatted"]=target_policy=="format-selected-disk";plan["layoutBytes"]=parts;if(!execute)return plan;
     Handle mutex(CreateMutexW(nullptr,TRUE,L"Global\\repxeDeployment"));if(!mutex)fail("Create deployment lock");if(GetLastError()==ERROR_ALREADY_EXISTS)throw std::runtime_error("Another deployment owns the deployment lock");
     auto id=sha256(config_path).substr(0,16);auto jobs=std::filesystem::path(wide(config.at("jobDirectory")));auto job=jobs/(L"deploy-"+wide(id)+L".json");if(std::filesystem::exists(job))throw std::runtime_error("Deployment job already exists; automatic destructive retries are refused");
-    Json state={{"schemaVersion",1},{"toolVersion","0.13.5"},{"id",id},{"stage","preflight"},{"startedUtc",utc_now()},{"plan",plan},{"history",Json::array()},{"diskWritesPerformed",false}};
+    Json state={{"schemaVersion",1},{"toolVersion","0.13.6"},{"id",id},{"stage","preflight"},{"startedUtc",utc_now()},{"plan",plan},{"history",Json::array()},{"diskWritesPerformed",false}};
     auto stage=[&](const char* name){state["stage"]=name;state.erase("progressPercent");if(std::string(name)=="applying-image")state["progressPercent"]=0;state["history"].push_back({{"stage",name},{"utc",utc_now()}});write_json(job,state);std::cerr<<"Deployment stage: "<<name<<"\n";if(progress)progress(state);};
     auto tool=[&](const char* name,std::vector<std::wstring> args,const std::string& input=""){auto log=jobs/(L"deploy-"+wide(id)+L"-"+wide(name)+L".log");std::function<void(int)> observe;
         if(std::string(name)=="apply")observe=[&](int percent){state["progressPercent"]=percent;state["imageApplyPercent"]=percent;write_json(job,state);if(progress)progress(state);};
@@ -638,8 +639,6 @@ Json deploy_from_config(const Json& config,const std::filesystem::path& path,boo
 Json pxe_preflight(const Json& config,const std::filesystem::path& path,const Json& metadata){return deploy_internal(config,path,false,{},&metadata,{});}
 Json pxe_deploy(const Json& config,const std::filesystem::path& path,const Json& metadata,const std::function<void(Json&,const std::filesystem::path&)>& source,const std::function<void(const Json&)>& progress){return deploy_internal(config,path,true,progress,&metadata,source);}
 namespace {
-constexpr auto completion_key=L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
-constexpr auto completion_value=L"repxeCompletion";
 std::wstring registry_text(const wchar_t* key,const wchar_t* name){
     std::array<wchar_t,4096> text{};DWORD size=sizeof(text);
     auto code=RegGetValueW(HKEY_LOCAL_MACHINE,key,name,RRF_RT_REG_SZ,nullptr,text.data(),&size);
@@ -709,7 +708,7 @@ void install_public_root(const std::filesystem::path& path){
 }
 constexpr auto update_policy_key=L"SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU";
 struct RegistryKey {HKEY h=nullptr;~RegistryKey(){if(h)RegCloseKey(h);}};
-Json pause_update_policy(const std::filesystem::path& windows){
+Json edit_offline_software(const std::filesystem::path& windows,const std::function<Json(HKEY)>& edit){
     Handle token;
     if(!OpenProcessToken(GetCurrentProcess(),TOKEN_ADJUST_PRIVILEGES|TOKEN_QUERY,&token.value))fail("Open offline registry privilege");
     struct Privileges {
@@ -726,13 +725,23 @@ Json pause_update_policy(const std::filesystem::path& windows){
     GUID unique{};if(FAILED(CoCreateGuid(&unique)))throw std::runtime_error("Create private offline registry name");
     auto subkey=L"repxeOffline-"+wide(guid_text(unique));
     struct MountedHive {std::wstring name;bool loaded=false;~MountedHive(){if(loaded)RegUnLoadKeyW(HKEY_LOCAL_MACHINE,name.c_str());}} mounted{subkey};
-    RegistryKey hive,policy;
+    RegistryKey hive;
     auto code=RegLoadKeyW(HKEY_LOCAL_MACHINE,subkey.c_str(),(windows/L"System32\\config\\SOFTWARE").c_str());
-    if(code)throw std::runtime_error("Load destination Windows Update policy (Windows error "+std::to_string(code)+")");
+    if(code)throw std::runtime_error("Load destination SOFTWARE hive (Windows error "+std::to_string(code)+")");
     mounted.loaded=true;
     code=RegOpenKeyExW(HKEY_LOCAL_MACHINE,subkey.c_str(),0,KEY_ALL_ACCESS,&hive.h);
-    if(code)throw std::runtime_error("Open destination Windows Update hive");
-    code=RegCreateKeyExW(hive.h,L"Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",0,nullptr,0,KEY_ALL_ACCESS,nullptr,&policy.h,nullptr);
+    if(code)throw std::runtime_error("Open destination SOFTWARE hive");
+    auto result=edit(hive.h);
+    if(RegFlushKey(hive.h))throw std::runtime_error("Persist destination SOFTWARE hive");
+    RegCloseKey(hive.h);hive.h=nullptr;
+    code=RegUnLoadKeyW(HKEY_LOCAL_MACHINE,subkey.c_str());
+    if(code)throw std::runtime_error("Unload destination SOFTWARE hive");mounted.loaded=false;
+    return result;
+}
+Json pause_update_policy(const std::filesystem::path& windows){
+    return edit_offline_software(windows,[](HKEY hive){
+    RegistryKey policy;
+    auto code=RegCreateKeyExW(hive,L"Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",0,nullptr,0,KEY_ALL_ACCESS,nullptr,&policy.h,nullptr);
     if(code)throw std::runtime_error("Open offline automatic update policy");
     Json saved=Json::array();
     for(const auto* name:{L"NoAutoUpdate",L"NoAutoRebootWithLoggedOnUsers"}){
@@ -742,11 +751,8 @@ Json pause_update_policy(const std::filesystem::path& windows){
     }
     DWORD disabled=1;
     for(const auto* name:{L"NoAutoUpdate",L"NoAutoRebootWithLoggedOnUsers"})if(RegSetValueExW(policy.h,name,0,REG_DWORD,reinterpret_cast<BYTE*>(&disabled),sizeof(disabled)))throw std::runtime_error("Pause automatic Windows updates");
-    if(RegFlushKey(hive.h))throw std::runtime_error("Persist offline Windows Update policy");
-    RegCloseKey(policy.h);policy.h=nullptr;RegCloseKey(hive.h);hive.h=nullptr;
-    code=RegUnLoadKeyW(HKEY_LOCAL_MACHINE,subkey.c_str());
-    if(code)throw std::runtime_error("Unload destination Windows Update hive");mounted.loaded=false;
     return saved;
+    });
 }
 void restore_update_policy(Json& state){
     if(!state.contains("windowsUpdateRegistry")||state.value("windowsUpdatePolicyRestored",false))return;
@@ -780,7 +786,7 @@ void stage_completion(const std::filesystem::path& volume,const Json& target,con
     std::filesystem::create_directories(root);protect_path(root);
     for(size_t i=0;i<previous_answers.size();++i){auto backup=root/(L"reference-unattend-"+std::to_wstring(i)+L".xml");std::filesystem::copy_file(previous_answers[i],backup);protect_path(backup);std::filesystem::remove(previous_answers[i]);}
     auto exe=root/L"re-pxe.exe";std::filesystem::copy_file(executable(),exe);protect_path(exe);
-    Json state={{"schemaVersion",1},{"toolVersion","0.13.5"},{"id",id},{"stage","awaiting-windows"},{"target",target},{"diskGuid",guid_text(disk_id)},{"windowsPartitionGuid",guid_text(partition_id)},
+    Json state={{"schemaVersion",1},{"toolVersion","0.13.6"},{"id",id},{"stage","awaiting-windows"},{"target",target},{"diskGuid",guid_text(disk_id)},{"windowsPartitionGuid",guid_text(partition_id)},
         {"clientSha256",sha256(exe)},{"kernelSha256",sha256(volume/L"Windows\\System32\\ntoskrnl.exe")},{"imageSha256",config.at("sha256")},{"imageIndex",config.value("imageIndex",1)},
         {"history",Json::array()},{"bootObservations",Json::array()},{"driverActions",Json::array()},{"deliveryStatus","local-only"},{"generalizationPerformed",false}};
     if(config.value("driverConsole",false)){state["driverConsole"]=true;state["driverAutomaticAttempted"]=false;if(!config.contains("windowsUpdate"))state["windowsUpdateRegistry"]=pause_update_policy(volume/L"Windows");}
@@ -815,8 +821,12 @@ void stage_completion(const std::filesystem::path& volume,const Json& target,con
         auto oobe=root/L"answer-oobe.xml";write_text_new(oobe,answer_content(config,"oobe"));protect_path(oobe);
         state["answerFiles"]={{"auditSha256",config.at("answerFiles").at("audit").at("sha256")},{"oobeSha256",config.at("answerFiles").at("oobe").at("sha256")}};
     }
-    write_json(root/L"completion.json",state);protect_path(root/L"completion.json");
     write_text_new(answer,config.contains("answerFiles")?answer_content(config,"audit"):agent_answer(L"%SystemDrive%\\ProgramData\\re-pxe\\re-pxe.exe"));protect_path(answer);
+    // auditUser is a Setup launch. Install a persistent logon launch before the
+    // first Windows boot, even if that Setup launch exits before its first scan.
+    edit_offline_software(volume/L"Windows",[](HKEY hive){set_completion_startup(hive,true,completion_installed_path);return Json();});
+    state["startupTrigger"]="HKLM Run + auditUser";state["startupTriggerRemoved"]=false;state["startupTriggerProvisionedOffline"]=true;
+    write_json(root/L"completion.json",state);protect_path(root/L"completion.json");
 }
 Json device_status(){
     auto set=SetupDiGetClassDevsW(nullptr,nullptr,nullptr,DIGCF_ALLCLASSES|DIGCF_PRESENT);if(set==INVALID_HANDLE_VALUE)fail("Enumerate present devices");
@@ -883,10 +893,10 @@ std::string boot_identity(){
     RegCloseKey(key);if(code || !value[0])throw std::runtime_error("Read volatile boot identity");return utf8(value.data());
 }
 void completion_trigger(bool install,const std::wstring& exe){
-    HKEY key{};auto code=RegOpenKeyExW(HKEY_LOCAL_MACHINE,completion_key,0,KEY_SET_VALUE,&key);if(code)throw std::runtime_error("Open completion startup registry");
-    if(install){auto command=command_line({exe,L"complete"});code=RegSetValueExW(key,completion_value,0,REG_SZ,reinterpret_cast<const BYTE*>(command.c_str()),static_cast<DWORD>((command.size()+1)*sizeof(wchar_t)));}
-    else{code=RegDeleteValueW(key,completion_value);if(code==ERROR_FILE_NOT_FOUND)code=ERROR_SUCCESS;}
-    RegCloseKey(key);if(code)throw std::runtime_error("Update completion startup registry");
+    RegistryKey software;
+    auto code=RegOpenKeyExW(HKEY_LOCAL_MACHINE,L"SOFTWARE",0,KEY_READ|KEY_WRITE,&software.h);
+    if(code)throw std::runtime_error("Open completion SOFTWARE registry");
+    set_completion_startup(software.h,install,exe);
 }
 void clean_completion_answers(const std::filesystem::path& windows){
     for(const auto* name:{L"Panther\\Unattend.xml",L"Panther\\Unattend\\Unattend.xml"}){
@@ -1324,6 +1334,9 @@ Json driver_session_action(const std::string& action,const std::filesystem::path
     state["windowsKernelBinding"]=installed.state.at("windowsKernelBinding");
     auto emit=[&](const std::string& line){if(output)output(line);};
     auto save=[&]{write_json(file,state);protect_path(file);};
+    auto restart=[&](const std::filesystem::path& log){
+        completion_trigger(true,installed.exe.wstring());state["startupTrigger"]="HKLM Run + auditUser";state["startupTriggerRemoved"]=false;save();restart_system(log);
+    };
     auto stage=[&](const char* name){state["stage"]=name;state["history"].push_back({{"stage",name},{"utc",utc_now()}});save();completion_pulse(root,name);};
     auto run=[&](const std::vector<std::wstring>& args,const std::string& name,bool driver_install=false){auto log=root/(wide(name)+L"-"+wide(guid_text(new_guid()))+L".log");auto code=run_logged(args,log,"",driver_install?900000:INFINITE);state["tools"].push_back({{"name",name},{"exitCode",code},{"log",utf8(log.wstring())}});save();if(!driver_install&&code&&code!=3010)throw std::runtime_error(name+" failed with exit code "+std::to_string(code));return code;};
     const auto boot=boot_identity();
@@ -1344,7 +1357,7 @@ Json driver_session_action(const std::string& action,const std::filesystem::path
     }
     if(action=="restart"){
         state["checkpointBootId"]=boot;state["driverRebootRequired"]=true;stage("driver-reboot-pending");
-        restart_system(root/(L"driver-restart-"+std::to_wstring(GetTickCount64())+L".log"));return state;
+        restart(root/(L"driver-restart-"+std::to_wstring(GetTickCount64())+L".log"));return state;
     }
     if(action=="catalog")return driver_catalog(installed);
     if(action=="scan"){
@@ -1359,7 +1372,7 @@ Json driver_session_action(const std::string& action,const std::filesystem::path
         stage("installing-drivers");emit("Installing selected local driver using Windows signature checks…");
         try{auto code=run({system_directory()+L"\\pnputil.exe",L"/add-driver",upload.wstring(),L"/install"},"local-driver-install",true);auto result=driver_install_result(code);result["source"]="operator-selected local INF";result["inf"]=utf8(upload.wstring());state["driverActions"].push_back(result);
             if(!result.at("changed").get<bool>()){state.erase("error");stage("driver-menu");emit("Skipped: no matching device, or Windows already uses a better/newer driver.");return state;}
-            state["driverRebootRequired"]=true;state["checkpointBootId"]=boot;stage("driver-reboot-pending");restart_system(root/(L"driver-restart-"+std::to_wstring(GetTickCount64())+L".log"));return state;}
+            state["driverRebootRequired"]=true;state["checkpointBootId"]=boot;stage("driver-reboot-pending");restart(root/(L"driver-restart-"+std::to_wstring(GetTickCount64())+L".log"));return state;}
         catch(const std::exception& e){state["error"]=e.what();state["driverRebootRequired"]=true;state["driverInstallationMayBeInProgress"]=true;stage("driver-menu");throw;}
     }
     if(action=="upload"||action=="export-upload"||action=="retry-upload"){
@@ -1458,7 +1471,7 @@ Json driver_session_action(const std::string& action,const std::filesystem::path
             Json catalog;auto connection=driver_connection(installed);
             try{catalog=driver_catalog(installed);}catch(const std::exception& e){
                 if(changed&&!state.value("driverStagedRecoveryReboot",false)){
-                    state["driverStagedRecoveryReboot"]=true;state["driverAutomaticAttempted"]=false;state["driverRebootRequired"]=true;state["checkpointBootId"]=boot;state["error"]=e.what();stage("driver-reboot-pending");emit("Staged drivers installed. Restarting once before reconnecting to the server.");restart_system(root/(L"driver-restart-"+std::to_wstring(GetTickCount64())+L".log"));return state;
+                    state["driverStagedRecoveryReboot"]=true;state["driverAutomaticAttempted"]=false;state["driverRebootRequired"]=true;state["checkpointBootId"]=boot;state["error"]=e.what();stage("driver-reboot-pending");emit("Staged drivers installed. Restarting once before reconnecting to the server.");restart(root/(L"driver-restart-"+std::to_wstring(GetTickCount64())+L".log"));return state;
                 }
                 throw;
             }
@@ -1497,7 +1510,7 @@ Json driver_session_action(const std::string& action,const std::filesystem::path
         }
         run({system_directory()+L"\\pnputil.exe",L"/scan-devices"},"console-final-device-scan");Sleep(3000);state["drivers"]=device_status();
         state["driverRebootRequired"]=changed||state.value("driverInstallationMayBeInProgress",false);
-        if(state.at("driverRebootRequired")==true){state["checkpointBootId"]=boot;stage("driver-reboot-pending");emit("Driver changes saved. Restarting automatically; the main menu will reopen afterward.");restart_system(root/(L"driver-restart-"+std::to_wstring(GetTickCount64())+L".log"));}
+        if(state.at("driverRebootRequired")==true){state["checkpointBootId"]=boot;stage("driver-reboot-pending");emit("Driver changes saved. Restarting automatically; the main menu will reopen afterward.");restart(root/(L"driver-restart-"+std::to_wstring(GetTickCount64())+L".log"));}
         else{stage("driver-menu");emit("Driver pass finished. Returned to the main menu.");}
         return state;
     }catch(const std::exception& e){
