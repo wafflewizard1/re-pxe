@@ -102,7 +102,7 @@ try{
     bad_policy=automatic;bad_policy["managedSelection"]=false;rejects([&]{validate_pxe_automation(bad_policy,candidates);},"Require server-managed image selection");
     bad_policy=automatic;bad_policy["startDelaySeconds"]=0;validate_pxe_automation(bad_policy,candidates);check(true,"Permit an explicitly configured immediate start");
     auto plan=deployment_plan(base,hardware,wim,hash,paths);
-    check(plan["toolVersion"]=="0.13.5","Report current planner version");
+    check(plan["toolVersion"]=="0.13.6","Report current planner version");
     check(plan["readOnly"]==true && plan["diskWritesPerformed"]==false,"Planning must not perform writes");
     check(plan["target"]["number"]==1 && plan["preserveOtherDisks"]==true,"Resolve exactly the requested target");
     check(plan["executionAvailable"]==false,"Execution requires an explicit target policy");

@@ -12,7 +12,7 @@ import time
 import paramiko
 
 ROOT=Path(__file__).resolve().parents[1]
-VERSION='0.13.5'
+VERSION='0.13.6'
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -34,7 +34,7 @@ def main():
         files.append((artifacts/'repxe_hardware_tests.exe','repxe_hardware_tests.exe'))
     if (artifacts/'repxe_progress_tests.exe').exists():
         files.append((artifacts/'repxe_progress_tests.exe','repxe_progress_tests.exe'))
-    for name in ('repxe_battery_tests.exe','repxe_operation_lock_tests.exe','repxe_state_file_tests.exe','repxe_handoff_tests.exe'):
+    for name in ('repxe_battery_tests.exe','repxe_operation_lock_tests.exe','repxe_startup_tests.exe','repxe_state_file_tests.exe','repxe_handoff_tests.exe'):
         if (artifacts/name).exists():files.append((artifacts/name,name))
     for folder in ('examples','media'):
         files += [(p,str(p.relative_to(ROOT/'client'))) for p in (ROOT/'client'/folder).rglob('*') if p.is_file()]

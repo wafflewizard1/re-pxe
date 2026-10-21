@@ -1,4 +1,5 @@
 #include <repxe/technician.hpp>
+#include <repxe/operation_lock.hpp>
 #include <windows.h>
 #include <commdlg.h>
 #include <shellapi.h>
@@ -88,9 +89,7 @@ LRESULT CALLBACK procedure(HWND h,UINT m,WPARAM w,LPARAM l){
 }
 int driver_console(){
     if(inventory().at("environment").value("winpe",false))throw std::runtime_error("Driver console requires installed Windows");
-    auto lock=CreateMutexW(nullptr,TRUE,L"Global\\repxeDriverConsole");if(!lock)throw std::runtime_error("Create driver console lock");
-    if(GetLastError()==ERROR_ALREADY_EXISTS){CloseHandle(lock);return 0;}
-    struct Guard{HANDLE value;~Guard(){ReleaseMutex(value);CloseHandle(value);}} guard{lock};
+    OperationLock lock(L"Global\\repxeDriverConsole");if(!lock)return 0;
     Console ui;SetProcessDPIAware();auto instance=GetModuleHandleW(nullptr);WNDCLASSW cls{};cls.hInstance=instance;cls.lpfnWndProc=procedure;cls.lpszClassName=L"repxeDriverConsole";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);if(!RegisterClassW(&cls)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)throw std::runtime_error("Register driver console");
     auto h=CreateWindowExW(0,cls.lpszClassName,L"re-pxe - Driver console",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,30,15,996,704,nullptr,nullptr,instance,&ui);if(!h)throw std::runtime_error("Create driver console");
     auto console=GetConsoleWindow();if(console)ShowWindow(console,SW_HIDE);ShowWindow(h,SW_SHOW);UpdateWindow(h);ui.line("re-pxe driver console.");ui.start("scan");

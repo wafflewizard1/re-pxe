@@ -8,7 +8,7 @@
 #include <stdexcept>
 
 namespace {
-const char* help=R"(re-pxe native AMD64 client 0.13.5
+const char* help=R"(re-pxe native AMD64 client 0.13.6
 
   repxe pxe --boot PATH
   repxe ui [--config PATH] [--audit-log PATH]
@@ -36,7 +36,7 @@ int wmain(int argc,wchar_t** argv){
     using namespace repxe;
     try{
         if(argc<2 || std::wstring(argv[1])==L"--help" || std::wstring(argv[1])==L"help"){std::cout<<help;return 0;}
-        if(std::wstring(argv[1])==L"version"){std::cout<<"0.13.5\n";return 0;}
+        if(std::wstring(argv[1])==L"version"){std::cout<<"0.13.6\n";return 0;}
         std::map<std::wstring,std::wstring> options;
         for(int i=2;i<argc;++i){std::wstring key=argv[i];if(key==L"--execute"){if(options.contains(key))throw std::runtime_error("Duplicate option");options[key]=L"true";continue;}
             if(key.rfind(L"--",0)!=0 || i+1>=argc)throw std::runtime_error("Options require --name value");
@@ -74,5 +74,12 @@ int wmain(int argc,wchar_t** argv){
         if(command==L"capture"){auto file=required(L"--config");result=capture_from_config(read_json(file),file,options.contains(L"--execute"));}
         if(command==L"deploy"){auto file=required(L"--config");result=deploy_from_config(read_json(file),file,options.contains(L"--execute"));}
         std::cout<<result.dump(2)<<"\n";return 0;
-    }catch(const std::exception& e){std::cerr<<repxe::Json{{"error",e.what()}}.dump()<<"\n";return 1;}
+    }catch(const std::exception& e){
+        std::cerr<<repxe::Json{{"error",e.what()}}.dump()<<"\n";
+        if(argc>1&&std::wstring(argv[1])==L"complete"){
+            const auto message=repxe::wide(std::string("re-pxe could not resume setup:\n\n")+e.what()+"\n\nKeep this error for diagnosis. In Administrator Command Prompt, run:\nC:\\ProgramData\\re-pxe\\re-pxe.exe completion-status");
+            MessageBoxW(nullptr,message.c_str(),L"re-pxe - Startup stopped",MB_OK|MB_ICONERROR|MB_SETFOREGROUND);
+        }
+        return 1;
+    }
 }

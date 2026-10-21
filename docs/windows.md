@@ -114,6 +114,14 @@ The media validation flag does not gate routine publication. DHCP stays on
 
 ## Driver reboot resume
 
+Deployment installs the persistent `repxeCompletion` startup entry in the
+destination SOFTWARE hive before the first Windows boot. Its expandable path
+uses the installed Windows system drive, independently of WinPE drive letters.
+The Audit answer file also launches completion, and the console keeps a single
+active window when both launches run. Each requested driver restart rearms the
+entry; terminal cleanup removes only re-pxe's entry. A startup validation failure
+shows a visible error instead of closing its console immediately.
+
 Audit completion remains bound to the installed re-pxe executable and the
 original disk and Windows partition. Windows servicing can replace
 `Windows\System32\ntoskrnl.exe` after provisioning. A changed kernel is accepted
