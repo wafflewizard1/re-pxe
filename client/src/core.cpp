@@ -75,6 +75,13 @@ bool validate_completion_bindings(const Json& state,const std::string& installed
     return changed;
 }
 
+Json completion_state_after_reload(Json persisted,const Json& verified){
+    require(persisted.is_object(),"Reloaded completion state must be an object");
+    require(verified.is_object()&&verified.contains("windowsKernelBinding")&&verified.at("windowsKernelBinding").is_object(),"Verified Windows kernel binding is missing");
+    persisted["windowsKernelBinding"]=verified.at("windowsKernelBinding");
+    return persisted;
+}
+
 std::string completion_action(const std::string& stage,bool new_boot,bool driver_problems) {
     if(stage=="awaiting-windows")return "checkpoint-reboot";
     if(stage=="reboot-pending") {
@@ -519,7 +526,7 @@ Json deployment_plan(const Json& config, const Json& inventory, const Json& imag
     const auto required = image_bytes + headroom + esp + msr + recovery + 4 * MiB;
     const auto capacity = target.at("sizeBytes").get<unsigned long long>();
     require(capacity >= required, "Target disk is too small for the image, layout and free-space reserve");
-    return {{"schemaVersion", 1}, {"toolVersion", "0.13.6"}, {"readOnly", true}, {"diskWritesPerformed", false},
+    return {{"schemaVersion", 1}, {"toolVersion", "0.13.7"}, {"readOnly", true}, {"diskWritesPerformed", false},
         {"config", config}, {"target", target}, {"image", selected_image}, {"sha256", actual_hash},
         {"resources", resources}, {"requiredBytes", required}, {"preserveOtherDisks", true},
         {"layout", Json::array({{{"role","efi"},{"filesystem","FAT32"},{"sizeMiB",260}},
