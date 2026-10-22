@@ -172,7 +172,7 @@ class Inventory(Input):
 
 class Claim(Input):
     mac: str = Field(pattern=r'^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$')
-    agent_version: Literal['re-pxe-shredos-1', 're-pxe-shredos-2', 're-pxe-shredos-3', 're-pxe-shredos-4', 're-pxe-shredos-5', 're-pxe-shredos-6', 're-pxe-shredos-7', 're-pxe-shredos-8', 're-pxe-shredos-9', 're-pxe-shredos-10']
+    agent_version: Literal['re-pxe-shredos-1', 're-pxe-shredos-2', 're-pxe-shredos-3', 're-pxe-shredos-4', 're-pxe-shredos-5', 're-pxe-shredos-6', 're-pxe-shredos-7', 're-pxe-shredos-8', 're-pxe-shredos-9', 're-pxe-shredos-10', 're-pxe-shredos-11']
     inventory: Inventory
 
 
@@ -806,7 +806,11 @@ def install(app, store, Role, allow):
             current = db.execute('SELECT * FROM workflow_runs WHERE id=?', (row['id'],)).fetchone()
             if current['report_hash']:
                 if current['report_hash'] == sha:
-                    return {'accepted': True, 'duplicate': True, 'stage': current['stage']}
+                    from . import routines
+                    routines.sync(db)
+                    routine = db.execute('SELECT r.stage FROM routine_runs r WHERE r.workflow_id=? OR r.id IN (SELECT run_id FROM routine_erase_disks WHERE workflow_id=?)', (row['id'],row['id'])).fetchone()
+                    return {'accepted': True, 'duplicate': True, 'stage': current['stage'],
+                            'reboot_for_routine': bool(routine and routine['stage'] in ('custom-boot','windows-boot','checkpoint'))}
                 raise HTTPException(409, 'Result is immutable')
             expected = json.loads(current['spec'])
             if current['stage'] != 'erasing':

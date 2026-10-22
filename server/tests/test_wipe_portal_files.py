@@ -147,7 +147,7 @@ def test_companion_only_upgrade_preserves_active_run_and_immutable_old_media(lab
 
 def test_remove_failed_batch_retains_failed_result_and_unstarted_drives(lab):
     from test_multidrive_routines import erase_one
-    c,p,body,intake=prepare(lab)
+    c,p,body,intake=prepare(lab,failure_halt=True)
     first,credential=erase_one(c,body,intake,failed=True)
     jobs=c.get('/api/routine-jobs?view=all',headers=auth()).json()['runs'];job=jobs[0]
     assert job['stage']=='failed' and job['can_remove']

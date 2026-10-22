@@ -66,6 +66,7 @@ def test_failed_wipe_continues_windows_and_keeps_failed_evidence(lab, explicit_f
                evidence={'error':'Completed wipe failed','safe_to_reboot':True})
     r=c.post('/api/erase/result',headers=h,json=bad)
     assert r.status_code==200 and r.json()['reboot_for_routine'],r.text
+    assert c.post('/api/erase/result',headers=h,json=bad).json()['reboot_for_routine']
     routine=c.get('/api/routines',headers=auth()).json()['runs'][0]
     assert routine['stage']=='windows-boot' and routine['error']=='Completed wipe failed'
     pe,enrolled=managed_enroll(c,managed_ticket(c))
