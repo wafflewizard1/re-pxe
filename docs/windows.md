@@ -131,6 +131,10 @@ so it can run offline. Unsigned, tampered, or unverifiable replacements stop
 completion with a specific error. The original kernel hash remains in the state
 as image provenance; `windowsKernelBinding` records the verified current hash.
 `completion-status` performs these checks without updating the state file.
+The verified kernel evidence is kept separately from the mutable action state.
+Reloading that state before scans, uploads or Finish preserves current saved
+progress and reapplies runtime-verified evidence, even when an older or freshly
+provisioned state file has no `windowsKernelBinding` field yet.
 
 ## Prepare the installation image and routine
 

@@ -34,6 +34,30 @@ int main(int argc,char** argv){
         rejects([&]{validate_completion_bindings(state,client,client,"",true);},"Missing current kernel is never trusted");
     }
     {
+        Json disk={{"schemaVersion",1},{"stage","awaiting-windows"},{"kernelSha256",std::string(64,'a')},{"driverAutomaticAttempted",false}};
+        Json verified=disk;verified["windowsKernelBinding"]={{"imageSha256",disk.at("kernelSha256")},{"currentSha256",std::string(64,'b')},{"changed",true},{"microsoftSignatureVerified",true}};
+        const auto snapshot=verified;
+        auto working=completion_state_after_reload(disk,verified);
+        check(working.at("windowsKernelBinding")==snapshot.at("windowsKernelBinding")&&!disk.contains("windowsKernelBinding"),"First driver scan accepts a fresh state without persisted derived kernel evidence");
+        disk["stage"]="driver-menu";disk["driverAutomaticAttempted"]=true;
+        disk["pendingDriverUpload"]={{"id","retained-upload"},{"received",8*MiB}};
+        working=completion_state_after_reload(disk,verified);
+        check(working.at("pendingDriverUpload")==disk.at("pendingDriverUpload")&&working.at("stage")=="driver-menu"&&working.at("driverAutomaticAttempted")==true,"Upload reload preserves fresh progress instead of restoring the stale verified snapshot");
+        check(verified==snapshot,"Driver actions never mutate the independently verified installation snapshot");
+        disk["windowsKernelBinding"]={{"currentSha256","stale on-disk evidence"}};
+        working=completion_state_after_reload(disk,verified);
+        check(working.at("windowsKernelBinding")==snapshot.at("windowsKernelBinding")&&working.at("kernelSha256")==disk.at("kernelSha256"),"Reload uses current verified kernel evidence while preserving original provenance");
+        auto& alias=verified;alias=completion_state_after_reload(disk,verified);
+        check(alias.at("windowsKernelBinding")==snapshot.at("windowsKernelBinding")&&alias.at("pendingDriverUpload")==disk.at("pendingDriverUpload"),"An aliased destination cannot discard kernel evidence before the reload finishes");
+        rejects([&]{completion_state_after_reload(disk,Json::object());},"Missing verified evidence is not replaced by trusting the disk record");
+        auto invalid=snapshot;invalid["windowsKernelBinding"]=nullptr;
+        rejects([&]{completion_state_after_reload(disk,invalid);},"Malformed runtime evidence remains an error");
+        rejects([&]{completion_state_after_reload(Json(),snapshot);},"Malformed reloaded state remains an error");
+        auto sealed=disk;sealed["stage"]="complete";sealed["deliveryStatus"]="delivered";
+        working=completion_state_after_reload(sealed,snapshot);
+        check(working.at("stage")=="complete"&&working.at("deliveryStatus")=="delivered","Finish and report reloads preserve terminal state rather than repeating driver work");
+    }
+    {
         Json disks=Json::array({{{"identity","serial:FIRST"}},{{"identity","serial:PINNED"}}});
         Json policy={{"automaticDiskSelection",true},{"targetIdentity","serial:PINNED"}};
         if(pxe_target_index(disks,policy)!=1)throw std::runtime_error("Pinned second target was ignored");
@@ -102,7 +126,7 @@ try{
     bad_policy=automatic;bad_policy["managedSelection"]=false;rejects([&]{validate_pxe_automation(bad_policy,candidates);},"Require server-managed image selection");
     bad_policy=automatic;bad_policy["startDelaySeconds"]=0;validate_pxe_automation(bad_policy,candidates);check(true,"Permit an explicitly configured immediate start");
     auto plan=deployment_plan(base,hardware,wim,hash,paths);
-    check(plan["toolVersion"]=="0.13.6","Report current planner version");
+    check(plan["toolVersion"]=="0.13.7","Report current planner version");
     check(plan["readOnly"]==true && plan["diskWritesPerformed"]==false,"Planning must not perform writes");
     check(plan["target"]["number"]==1 && plan["preserveOtherDisks"]==true,"Resolve exactly the requested target");
     check(plan["executionAvailable"]==false,"Execution requires an explicit target policy");
