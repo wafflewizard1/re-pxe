@@ -526,7 +526,7 @@ Json deployment_plan(const Json& config, const Json& inventory, const Json& imag
     const auto required = image_bytes + headroom + esp + msr + recovery + 4 * MiB;
     const auto capacity = target.at("sizeBytes").get<unsigned long long>();
     require(capacity >= required, "Target disk is too small for the image, layout and free-space reserve");
-    return {{"schemaVersion", 1}, {"toolVersion", "0.13.7"}, {"readOnly", true}, {"diskWritesPerformed", false},
+    return {{"schemaVersion", 1}, {"toolVersion", "0.14.0"}, {"readOnly", true}, {"diskWritesPerformed", false},
         {"config", config}, {"target", target}, {"image", selected_image}, {"sha256", actual_hash},
         {"resources", resources}, {"requiredBytes", required}, {"preserveOtherDisks", true},
         {"layout", Json::array({{{"role","efi"},{"filesystem","FAT32"},{"sizeMiB",260}},

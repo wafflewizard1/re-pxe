@@ -34,7 +34,7 @@ Json request_api(const std::string& origin,const std::string& token,const std::s
     auto url=wide(origin);URL_COMPONENTS c{};c.dwStructSize=sizeof(c);c.dwHostNameLength=static_cast<DWORD>(-1);
     if(!WinHttpCrackUrl(url.c_str(),0,0,&c) || c.nScheme!=INTERNET_SCHEME_HTTPS)throw std::runtime_error("Invalid HTTPS origin");
     std::wstring host(c.lpszHostName,c.dwHostNameLength);
-    Internet session(WinHttpOpen(L"re-pxe/0.13.7",WINHTTP_ACCESS_TYPE_NO_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
+    Internet session(WinHttpOpen(L"re-pxe/0.14.0",WINHTTP_ACCESS_TYPE_NO_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
     if(!WinHttpSetTimeouts(session.h,5000,5000,10000,10000))error("Set HTTPS timeouts");
     Internet connection(WinHttpConnect(session.h,host.c_str(),c.nPort,0));
     std::atomic<DWORD> tls_flags{0};
@@ -79,7 +79,7 @@ Json server_request(const std::string& origin,const std::string& token,const std
 Json pxe_api(const std::string& origin,const std::string& token,const std::string& path,const Json* body){return api(origin,token,path,body);}
 void pxe_download(const std::string& origin,const std::string& token,const std::string& path,const std::filesystem::path& output,unsigned long long expected,const std::function<void(unsigned long long)>& progress){
     validate_server_origin(origin);token_policy(token);
-    if(!std::regex_match(path,std::regex("/api/(pxe/(image|driver/[0-9]+)|client-jobs/[a-f0-9-]{36}/(drivers/[a-f0-9-]{36}/files/[0-9]+|customer-report/(re-pxe-report|erasure-drive-[0-9]{1,2})\\.pdf))")) || !expected || expected>100ULL*GiB)throw std::runtime_error("Invalid PXE download");
+    if(!std::regex_match(path,std::regex("/api/(pxe/(image|driver/[0-9]+)|client-jobs/[a-f0-9-]{36}/(drivers/[a-f0-9-]{36}/files/[0-9]+|windows/files/[a-f0-9-]{36}|customer-report/(re-pxe-report|erasure-drive-[0-9]{1,2})\\.pdf))")) || !expected || expected>100ULL*GiB)throw std::runtime_error("Invalid PXE download");
     auto url=wide(origin);URL_COMPONENTS c{};c.dwStructSize=sizeof(c);c.dwHostNameLength=static_cast<DWORD>(-1);
     if(!WinHttpCrackUrl(url.c_str(),0,0,&c) || c.nScheme!=INTERNET_SCHEME_HTTPS)throw std::runtime_error("Invalid download origin");
     std::wstring host(c.lpszHostName,c.dwHostNameLength);

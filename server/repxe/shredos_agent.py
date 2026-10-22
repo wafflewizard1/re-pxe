@@ -29,7 +29,7 @@ try:
 except ImportError:  # Bundled RAM-root companion.
     import erase_policy, smart_health
 
-VERSION = 're-pxe-shredos-10'
+VERSION = 're-pxe-shredos-11'
 METHODS = set(erase_policy.METHODS)
 NATIVE_VERSION = '0.43-repxe1'
 HEALTH = {}
@@ -723,7 +723,7 @@ def execute_run(api, run, evidence):
         (evidence / 'result.json').write_text(json.dumps(result, indent=2))
         ack = upload_evidence(api, run, result, pdf)
         print('Erasure evidence saved. Workflow stage: ' + ack['stage'], flush=True)
-        if not success: return False
+        if not success: return 'reboot' if ack.get('reboot_for_routine') else False
         while True:
             state = api.request('status', run['token'], method='GET')
             if state['reboot_for_windows'] or state.get('reboot_for_routine'):

@@ -648,6 +648,36 @@ test('failed routine attention explains the error and offers explicit cancellati
  assert.match(f.element('attention-content').innerHTML,/Unsupported &lt;operation&gt;/);assert.match(f.element('attention-actions').innerHTML,/Cancel job/);assert.doesNotMatch(f.element('attention-content').innerHTML,/portal-windows-disk/);
 });
 
+test('Windows portal sends power commands to the displayed job and uploads raw file bytes with CSRF',async()=>{
+ const f=fixture(),job='11111111-2222-3333-4444-555555555555';
+ const state={available:true,busy:true,job_id:job,commands:[{filename:'<notes>.txt',action:'file',status:'failed',size:4,result:{error:'<error>'}}]};
+ f.context.fetch=async(path,options)=>{f.requests.push({path,options});return {ok:true,status:200,json:async()=>path.endsWith('/windows')?state:{client:f.client,job:null,controls:[]}};};
+ await f.call("showWindowsControls('client-1')");
+ assert.match(f.element('windows-remote-actions').innerHTML,/Restart Windows.*Shut down Windows.*Upload to desktop/);
+ assert.match(f.element('windows-remote-status').innerHTML,/Commands will wait/);
+ assert.match(f.element('windows-remote-status').innerHTML,/&lt;notes&gt;\.txt/);
+ assert.doesNotMatch(f.element('windows-remote-status').innerHTML,/<error>/);
+ f.context.powerEvent={target:{closest:s=>s==='[data-windows-power]'?{dataset:{windowsPower:'restart'}}:null}};
+ await f.call('windowsRemoteClick(powerEvent)');
+ const power=f.requests.find(r=>r.path.endsWith('/windows/commands'));
+ assert.deepEqual(JSON.parse(power.options.body),{action:'restart',expected_job_id:job});
+ assert.equal(power.options.headers['X-CSRF-Token'],'fixture-csrf');
+ const file=new Blob(['bytes']);file.name='Desktop notes.txt';f.element('windows-desktop-file').files=[file];
+ f.context.uploadEvent={target:{closest:s=>s==='[data-windows-send]'?{}:null}};
+ await f.call('windowsRemoteClick(uploadEvent)');
+ const upload=f.requests.find(r=>r.path.includes('/windows/files?'));
+ assert.equal(upload.options.body,file);assert.equal(upload.options.headers['Content-Type'],'application/octet-stream');
+ assert.equal(upload.options.headers['X-CSRF-Token'],'fixture-csrf');assert.match(upload.path,/filename=Desktop\+notes.txt/);assert.match(upload.path,new RegExp('expected_job_id='+job));
+});
+
+test('Windows control polling cannot paint a different client after navigation',async()=>{
+ const f=fixture();f.call("windowsRemoteClient='first';$('windows-controls-dialog').open=true");
+ let resolve;f.context.fetch=()=>new Promise(r=>{resolve=r;});
+ const waiting=f.call("refreshWindowsRemote('first')");f.call("windowsRemoteClient='second'");
+ f.element('windows-remote-status').innerHTML='second client';resolve({ok:true,status:200,json:async()=>({available:true,commands:[]})});await waiting;
+ assert.equal(f.element('windows-remote-status').innerHTML,'second client');
+});
+
 test('dashboard recent attention badges open the same routine or client action instead of a report',()=>{
  const f=fixture();f.dashboard.routines={enabled:true,active:[],choices:[],counts:{},recent:[{run_id:'run-attention',system_serial:'RECENT-1',stage:'needs-operator',status_label:'Needs attention'},{client_id:'client-attention',system_serial:'RECENT-2',stage:'failed',status_label:'Failed'}]};f.call('renderDashboard(fixtureDashboard)');
  const html=f.element('recent-jobs').innerHTML;assert.match(html,/data-attention-routine="run-attention"/);assert.match(html,/data-attention-client="client-attention"/);assert.match(html,/Needs attention · Failed/);

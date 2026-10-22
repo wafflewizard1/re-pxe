@@ -13,7 +13,7 @@ import secrets
 import uuid
 
 from fastapi import Depends, Header, HTTPException, Query
-from . import client_management, device_inventory
+from . import client_management, device_inventory, windows_controls
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -60,6 +60,7 @@ def initialize(db):
         if column not in columns:db.execute(f'ALTER TABLE clients ADD COLUMN {column} TEXT')
     client_management.initialize(db)
     device_inventory.initialize(db)
+    windows_controls.initialize(db)
     db.execute('INSERT OR IGNORE INTO pxe_settings VALUES(1,?)',(Settings().model_dump_json(),))
 
 def settings_for(db):
@@ -529,6 +530,7 @@ boot
         return {'accepted':True,'jobId':uid}
 
     client_management.install(app,store,Role,allow,settings_for)
+    windows_controls.install(app,store,Role,allow,Credential)
 
     @app.get('/api/dashboard')
     def dashboard(role: Role,view: client_management.VIEWS='current',search: str=Query(default='',max_length=200),

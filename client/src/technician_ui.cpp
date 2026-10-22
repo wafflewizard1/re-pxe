@@ -79,7 +79,7 @@ void layout(Ui& u){
     RECT area{};GetClientRect(u.window,&area);u.scale_x=double(area.right)/1096;u.scale_y=double(area.bottom)/719;
     u.font=CreateFontW(-16,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Segoe UI");u.title=CreateFontW(-29,0,0,0,FW_SEMIBOLD,0,0,0,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Segoe UI");u.mono=CreateFontW(-14,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Consolas");
     auto heading=control(u,L"STATIC",L"re-pxe",0,24,17,640,38);SendMessageW(heading,WM_SETFONT,reinterpret_cast<WPARAM>(u.title),TRUE);
-    label(u,L"Technician workspace  /  0.13.7",24,62,650);control(u,L"BUTTON",L"Technical details",WS_TABSTOP|BS_AUTOCHECKBOX,700,25,190,32,Details);control(u,L"BUTTON",L"Refresh inventory",WS_TABSTOP,898,23,170,36,Inventory);
+    label(u,L"Technician workspace  /  0.14.0",24,62,650);control(u,L"BUTTON",L"Technical details",WS_TABSTOP|BS_AUTOCHECKBOX,700,25,190,32,Details);control(u,L"BUTTON",L"Refresh inventory",WS_TABSTOP,898,23,170,36,Inventory);
     label(u,L"Operation",24,100,180);label(u,L"Configuration file",212,100,850);
     control(u,L"COMBOBOX",L"",WS_TABSTOP|CBS_DROPDOWNLIST|WS_VSCROLL,24,124,170,130,Mode);SendMessageW(u.controls[Mode],CB_ADDSTRING,0,reinterpret_cast<LPARAM>(L"Deploy Windows"));SendMessageW(u.controls[Mode],CB_ADDSTRING,0,reinterpret_cast<LPARAM>(L"Capture reference"));SendMessageW(u.controls[Mode],CB_SETCURSEL,0,0);
     control(u,L"EDIT",L"",WS_TABSTOP|WS_BORDER|ES_AUTOHSCROLL,212,124,744,30,Config);control(u,L"BUTTON",L"Browse...",WS_TABSTOP,968,123,100,32,Browse);
@@ -175,7 +175,7 @@ LRESULT CALLBACK window_proc(HWND h,UINT m,WPARAM w,LPARAM l){
 int technician_ui(const std::filesystem::path& config,const std::filesystem::path& audit){
     SetProcessDPIAware();Ui ui;ui.audit=audit;auto instance=GetModuleHandleW(nullptr);WNDCLASSW cls{};cls.hInstance=instance;cls.lpfnWndProc=window_proc;cls.lpszClassName=L"repxeTechnician";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);if(!RegisterClassW(&cls) && GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)throw std::runtime_error("Register technician window");
     cls.lpfnWndProc=confirm_proc;cls.lpszClassName=L"repxeConfirmation";RegisterClassW(&cls);
-    auto h=CreateWindowExW(0,L"repxeTechnician",L"re-pxe 0.13.7 - Technician workspace",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,0,0,std::min(1120,GetSystemMetrics(SM_CXSCREEN)),std::min(758,GetSystemMetrics(SM_CYSCREEN)),nullptr,nullptr,instance,&ui);if(!h)throw std::runtime_error("Create technician window");
+    auto h=CreateWindowExW(0,L"repxeTechnician",L"re-pxe 0.14.0 - Technician workspace",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,0,0,std::min(1120,GetSystemMetrics(SM_CXSCREEN)),std::min(758,GetSystemMetrics(SM_CYSCREEN)),nullptr,nullptr,instance,&ui);if(!h)throw std::runtime_error("Create technician window");
     if(!config.empty())ui.set(Config,config.wstring());auto console=GetConsoleWindow();if(console)ShowWindow(console,SW_HIDE);ShowWindow(h,SW_SHOW);UpdateWindow(h);ui.record("ui-opened");ui.start([&ui]{ui.post("inventory",inventory());});MSG msg{};
     while(GetMessageW(&msg,nullptr,0,0)>0){if(!IsDialogMessageW(h,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}}
     if(console)ShowWindow(console,SW_SHOW);return 0;

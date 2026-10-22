@@ -7,7 +7,12 @@
     }
 }
 (portal) {
-    request_body {
+    @desktop_upload path /api/clients/*/windows/files
+    request_body @desktop_upload {
+        max_size 108GB
+    }
+    @other_uploads not path /api/clients/*/windows/files
+    request_body @other_uploads {
         max_size 17MB
     }
     header {

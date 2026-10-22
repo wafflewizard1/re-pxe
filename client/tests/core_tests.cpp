@@ -1,4 +1,5 @@
 #include <repxe/core.hpp>
+#include <repxe/windows_controls.hpp>
 #include <functional>
 #include <fstream>
 #include <iostream>
@@ -19,6 +20,25 @@ Json resources(){return Json::array({{{"role","image"},{"resolved",true},{"diskN
     {{"role","scratch"},{"resolved",true},{"diskNumbers",Json::array()}},{{"role","logs"},{"resolved",true},{"diskNumbers",Json::array({2})}}});}
 }
 int main(int argc,char** argv){
+    {
+        const std::string job="11111111-2222-3333-4444-555555555555",id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",path="/api/client-jobs/"+job;
+        Json command={{"id",id},{"job_id",job},{"action","restart"}};
+        validate_windows_command(command,path);check(true,"Accept a restart bound to this Windows job");
+        Json receipts=Json::object();check(prepare_windows_receipt(receipts,command,"now"),"A new remote command receives one execution receipt");
+        const auto started=receipts;
+        receipts[id]["result"]={{"status","completed"},{"path",""},{"error",""}};
+        check(!prepare_windows_receipt(receipts,command,"later")&&receipts[id]["result"]["status"]=="completed","Lost power acknowledgement is retried without executing a second restart");
+        receipts=started;check(!prepare_windows_receipt(receipts,command,"after crash")&&receipts[id]["result"]["status"]=="failed","Interrupted power command cannot replay after reboot");
+        auto different=command;different["action"]="shutdown";rejects([&]{prepare_windows_receipt(receipts,different,"later");},"A receipt cannot authorize a different command");
+        auto bad=command;bad["job_id"]=id;rejects([&]{validate_windows_command(bad,path);},"Refuse commands for another installation");
+        for(const auto* action:{"execute","shell","finish","wipe"}){bad=command;bad["action"]=action;rejects([&]{validate_windows_command(bad,path);},"Remote controls never accept arbitrary execution or installation actions");}
+        command["action"]="file";command["filename"]="Technician notes.txt";command["size"]=123;command["sha256"]=std::string(64,'a');command["download_path"]=path+"/windows/files/"+id;
+        validate_windows_command(command,path);check(true,"Accept a bounded desktop transfer with pinned bytes and closed download path");
+        for(const auto* name:{"../escape","C:\\escape","bad:stream","CON.txt","NUL","COM1.log","LPT1.txt","trailing.","trailing ","bad/name","bad|name"}){bad=command;bad["filename"]=name;rejects([&]{validate_windows_command(bad,path);},"Refuse nonportable desktop filenames and traversal");}
+        for(long long size:{-1LL,0LL,100LL*1024*1024*1024+1}){bad=command;bad["size"]=size;rejects([&]{validate_windows_command(bad,path);},"Reject invalid transfer sizes");}
+        bad=command;bad["download_path"]=path+"/windows/files/"+id+"?redirect=1";rejects([&]{validate_windows_command(bad,path);},"Reject alternate transfer endpoints");
+        bad=command;bad["sha256"]="bad";rejects([&]{validate_windows_command(bad,path);},"A desktop transfer requires SHA-256 metadata");
+    }
     {
         const std::string client(64,'a'),original_kernel(64,'b'),updated_kernel(64,'c');
         Json state={{"schemaVersion",1},{"clientSha256",client},{"kernelSha256",original_kernel}};
@@ -126,7 +146,7 @@ try{
     bad_policy=automatic;bad_policy["managedSelection"]=false;rejects([&]{validate_pxe_automation(bad_policy,candidates);},"Require server-managed image selection");
     bad_policy=automatic;bad_policy["startDelaySeconds"]=0;validate_pxe_automation(bad_policy,candidates);check(true,"Permit an explicitly configured immediate start");
     auto plan=deployment_plan(base,hardware,wim,hash,paths);
-    check(plan["toolVersion"]=="0.13.7","Report current planner version");
+    check(plan["toolVersion"]=="0.14.0","Report current planner version");
     check(plan["readOnly"]==true && plan["diskWritesPerformed"]==false,"Planning must not perform writes");
     check(plan["target"]["number"]==1 && plan["preserveOtherDisks"]==true,"Resolve exactly the requested target");
     check(plan["executionAvailable"]==false,"Execution requires an explicit target policy");

@@ -26,7 +26,7 @@ def test_graph_invalid_routes_draft_and_publication(lab):
     c,root,p=lab;install_media(root);uid,spec=graph(c,p,root)
     for edges,reason in [([{'source':'erase','target':'erase'}],'different'),
         ([{'source':'boot','target':'finish'}],'Every node'),
-        ([{'source':'boot','target':'erase'},{'source':'erase','target':'windows'},{'source':'erase','target':'windows','outcome':'failure'},{'source':'windows','target':'finish'},{'source':'failure','target':'finish'}],'Failure branches')]:
+        ([{'source':'boot','target':'erase'},{'source':'erase','target':'windows'},{'source':'erase','target':'windows','outcome':'failure'},{'source':'windows','target':'finish'},{'source':'failure','target':'finish'}],'Every node')]:
         bad={**spec,'connections':edges}
         r=c.post('/api/routines',headers=auth(),json=bad)
         if reason=='different':assert r.status_code==422;continue
@@ -47,6 +47,46 @@ def erase_claim(c,mac=MAC,method='zero',capabilities=None,serial='PC-001'):
     assert r.status_code==201,r.text
     run=r.json();h={'Authorization':'Bearer '+run['token']};assert c.post('/api/erase/begin',headers=h,json={}).status_code==200
     return run,h
+
+
+@pytest.mark.parametrize('explicit_failure', [False, True])
+def test_failed_wipe_continues_windows_and_keeps_failed_evidence(lab, explicit_failure):
+    from test_routines import make, managed_ticket
+    from test_pxe import managed_enroll
+    c,root,p=lab;install_media(root)
+    if explicit_failure:
+        uid,spec=graph(c,p,root,failure=False)
+        spec['connections'].append({'source':'erase','target':'windows','outcome':'failure'})
+        saved=c.post('/api/routines',headers=auth(),json=spec).json()
+        assert c.post('/api/routines/'+saved['id']+'/publish',headers=auth(),json={'expected_generation':1}).status_code==200
+        c.put('/api/routine-settings',headers=auth(),json={'default_id':saved['id']})
+    else: make(c,p,{'method':'zero'})
+    select(c);intake(c);run,h=erase_claim(c)
+    bad=result(run,result='failed',exit_code=1,errors=1,certificate_sha256=None,
+               evidence={'error':'Completed wipe failed','safe_to_reboot':True})
+    r=c.post('/api/erase/result',headers=h,json=bad)
+    assert r.status_code==200 and r.json()['reboot_for_routine'],r.text
+    routine=c.get('/api/routines',headers=auth()).json()['runs'][0]
+    assert routine['stage']=='windows-boot' and routine['error']=='Completed wipe failed'
+    pe,enrolled=managed_enroll(c,managed_ticket(c))
+    assert c.post('/api/pxe/select',headers=pe,json={'profile_id':p['id'],'target_identity':TARGET}).status_code==200
+    c.post('/api/pxe/countdown',headers=pe,json={'action':'start'})
+    job=c.post('/api/pxe/start',headers=pe,json={})
+    assert job.status_code==201,job.text
+    with c.app.state.store.db() as db:
+        wipe=db.execute('SELECT * FROM workflow_runs WHERE id=?',(run['id'],)).fetchone()
+        assert wipe['stage']=='failed' and json.loads(wipe['result'])['result']=='failed' and not wipe['certificate']
+
+
+def test_uncertain_wipe_still_holds_before_windows(lab):
+    from test_routines import make
+    c,root,p=lab;install_media(root);make(c,p,{'method':'zero'});select(c);intake(c);run,h=erase_claim(c)
+    bad=result(run,result='failed',exit_code=1,errors=1,certificate_sha256=None,
+               evidence={'error':'Controller outcome unknown','safe_to_reboot':False})
+    assert c.post('/api/erase/result',headers=h,json=bad).json()['reboot_for_routine'] is False
+    assert c.get('/api/routines',headers=auth()).json()['runs'][0]['stage']=='erase-running'
+    with c.app.state.store.db() as db:
+        assert db.execute('SELECT stage FROM workflow_runs WHERE id=?',(run['id'],)).fetchone()['stage']=='operation-pending'
 
 
 
