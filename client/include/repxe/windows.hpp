@@ -14,6 +14,7 @@ Json driver_session_snapshot();
 bool completion_uses_console();
 Json completion_status();
 void driver_session_pulse();
+void driver_remote_controls();
 Json driver_session_action(const std::string& action, const std::filesystem::path& upload = {},
                            const std::function<void(const std::string&)>& output = {});
 void restart_system(const std::filesystem::path& log);

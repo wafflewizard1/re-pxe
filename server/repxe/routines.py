@@ -111,11 +111,9 @@ def validate_graph(spec, complete=True):
     def walk(uid, stack, failed='', erased=False, installed=False):
         if uid in stack: raise ValueError('Routine loops are not supported; no automatic wipe retries')
         node = nodes[uid]; kind = node['kind']; visited.add(uid)
-        if failed and (kind=='windows' or kind=='erase' and failed!='unsupported'):
-            raise ValueError('Failure branches cannot erase or install Windows unless native sanitize is confirmed unsupported before starting')
+        if failed and kind=='erase' and failed!='unsupported':
+            raise ValueError('Failure branches cannot retry erasure unless native sanitize is confirmed unsupported before starting')
         if kind == 'erase' and installed: raise ValueError('Erasure must precede Windows installation')
-        if kind == 'windows' and any(n['kind'] == 'erase' for n in nodes.values()) and not erased:
-            raise ValueError('Windows must follow the successful erasure path')
         next_edges = [e for e in edges if e['source'] == uid]
         if kind != 'finish' and not any(e['outcome'] == 'success' for e in next_edges): raise ValueError('Connect the Success output of every nonterminal node')
         for e in next_edges:
@@ -251,12 +249,12 @@ def validate_runtime(store, db, spec, profile_artifacts):
         if s['kind'] in ('erase','windows') and s['target_policy']=='named-disk' and not s['target_identity']:raise HTTPException(409,'Specify the exact disk serial')
         if s['kind'] == 'erase':
             if s['target_policy'] in ('first-disk','manual'): raise HTTPException(409,'Erasure requires all internal drives, one internal drive or an exact serial')
-            if s['target_policy']=='all-internal' and workflows.media(store)['agent_version'] not in ('re-pxe-shredos-4','re-pxe-shredos-5','re-pxe-shredos-6','re-pxe-shredos-7','re-pxe-shredos-8','re-pxe-shredos-9',workflows.MEDIA_MARKER): raise HTTPException(409,'Update ShredOS before publishing multi-drive erasure')
+            if s['target_policy']=='all-internal' and workflows.media(store)['agent_version'] not in ('re-pxe-shredos-4','re-pxe-shredos-5','re-pxe-shredos-6','re-pxe-shredos-7','re-pxe-shredos-8','re-pxe-shredos-9','re-pxe-shredos-10',workflows.MEDIA_MARKER): raise HTTPException(409,'Update ShredOS before publishing multi-drive erasure')
             try: erase_policy.settings(s)
             except ValueError as exc: raise HTTPException(409, str(exc)) from None
             media = workflows.media(store)
             if erase_policy.extended(s['method']):workflows.require_native_media(media)
-            if (s.get('verification', 'all') != 'all' or s.get('prng','auto') != 'auto' or s.get('io_mode','auto') != 'auto' or s['rounds'] > 8) and media['agent_version'] not in ('re-pxe-shredos-2', 're-pxe-shredos-3', 're-pxe-shredos-4', 're-pxe-shredos-5', 're-pxe-shredos-6', 're-pxe-shredos-7', 're-pxe-shredos-8', 're-pxe-shredos-9', workflows.MEDIA_MARKER):
+            if (s.get('verification', 'all') != 'all' or s.get('prng','auto') != 'auto' or s.get('io_mode','auto') != 'auto' or s['rounds'] > 8) and media['agent_version'] not in ('re-pxe-shredos-2', 're-pxe-shredos-3', 're-pxe-shredos-4', 're-pxe-shredos-5', 're-pxe-shredos-6', 're-pxe-shredos-7', 're-pxe-shredos-8', 're-pxe-shredos-9', 're-pxe-shredos-10', workflows.MEDIA_MARKER):
                 raise HTTPException(409, 'Update the ShredOS capability before publishing these nwipe settings')
         if s['kind'] == 'ipxe' and not s.get('ipxe_content'):
             raise HTTPException(409, 'Select a custom iPXE script before publishing')
@@ -291,6 +289,12 @@ def successor(spec, index, outcome='success'):
 
 def advance(db, row, outcome='success', detail='', unsupported=False):
     spec = json.loads(row['spec']); index = successor(spec, row['step'], outcome)
+    # Linear routines continue to Windows after a completed wipe failure. An
+    # explicit Failure connection still takes precedence, including checkpoints.
+    if outcome == 'failure' and index is None and row['workflow_id'] and spec['steps'][row['step']]['kind'] == 'erase':
+        candidate = successor(spec, row['step'])
+        if candidate is not None and spec['steps'][candidate]['kind'] in ('windows', 'checkpoint'):
+            index = candidate
     if outcome == 'failure':
         for child in db.execute("SELECT w.id FROM routine_erase_disks d JOIN workflow_runs w ON w.id=d.workflow_id WHERE d.run_id=? AND d.step_index=? AND w.stage IN ('queued','batch-wait','claimed')",(row['id'],row['step'])).fetchall():
             workflows.event(db,child['id'],'cancelled','Batch stopped after failed drive; no automatic retries')
@@ -320,7 +324,7 @@ def move(db, row, index):
         if index is None: event(db, row, 'failed', 'Missing Success connection'); return
     kind = steps[index]['kind']
     stage = {'erase': 'discovering', 'windows': 'windows-boot', 'checkpoint': 'checkpoint', 'ipxe': 'custom-boot', 'finish': 'failed' if row['error'] else 'complete'}[kind]
-    if row['error'] and (kind=='windows' or kind=='erase' and row['failure_kind']!='unsupported'): event(db,row,'failed','Failed erasure cannot authorize a destructive step'); return
+    if row['error'] and kind=='erase' and row['failure_kind']!='unsupported': event(db,row,'failed','Failed erasure cannot authorize an automatic wipe retry'); return
     if kind == 'finish' and row['error']: event(db, row, 'failed', row['error'], index); return
     event(db, row, stage, 'Step: '+kind, index)
 
@@ -453,8 +457,6 @@ def queue_from_inventory(db, mac, inventory):
             else:advance(db,row,'failure',str(exc))
             return
         method = policy['method']
-        if windows and method.startswith('verify_'):
-            advance(db, row, 'failure', 'Read-only verification cannot authorize an erased-disk Windows handoff'); return
         if fallback:
             db.execute('INSERT INTO routine_events(run_id,step,stage,detail,created) VALUES(?,?,?,?,?)',(row['id'],row['step'],'fallback','Requested method unsupported; technician-selected fallback: '+method,now()))
         erase = workflows.Template(name=spec['name'], requested_method=step['method'],
@@ -575,10 +577,8 @@ def enforce_enroll(db, client_id, targets, managed, client_version):
     if not erased and run['workflow_id']:
         erased = [db.execute('SELECT * FROM workflow_runs WHERE id=?', (run['workflow_id'],)).fetchone()]
     if erased:
-        for disk in erased:
-            result = json.loads(disk['result']) if disk['result'] else {}
-            if result.get('result') != 'passed' or not disk['certificate']:
-                raise HTTPException(409, 'Every routine drive must finish erasure and certification first')
+        if any(disk['stage'] in ('erasing', 'operation-pending') for disk in erased):
+            raise HTTPException(409, 'An erasure or uncertain controller operation remains active')
         candidates = [t for t in targets if any(t.identity == d['target'] and t.size_bytes == d['size'] for d in erased)]
         if len(candidates) != len(erased): raise HTTPException(409, 'Routine disk identity or capacity changed; collect native NVMe controller serials')
     if step['target_policy'] == 'named-disk': candidates = [t for t in candidates if t.identity == step['target_identity']]
@@ -604,8 +604,8 @@ def select_windows_target(db, client_id, identity):
     matches = [t for t in targets if t['identity'] == identity]
     if len(matches) != 1: raise HTTPException(409, 'Choose one detected eligible drive')
     erased=db.execute('SELECT w.target,w.size,w.result,w.certificate FROM routine_erase_disks d JOIN workflow_runs w ON w.id=d.workflow_id WHERE d.run_id=? AND d.step_index=(SELECT step_index FROM routine_erase_disks WHERE workflow_id=?)',(run['id'],run['workflow_id'])).fetchall()
-    if erased and not any(d['target']==identity and d['size']==matches[0]['size_bytes'] and d['certificate'] and d['result'] and json.loads(d['result'])['result']=='passed' for d in erased):
-        raise HTTPException(409, 'Selected drive has no completed routine erasure')
+    if erased and not any(d['target']==identity and d['size']==matches[0]['size_bytes'] for d in erased):
+        raise HTTPException(409, 'Selected drive differs from the bound routine disk')
     db.execute('UPDATE routine_runs SET target=?,size=? WHERE id=?', (identity,matches[0]['size_bytes'],run['id']))
 
 
@@ -616,7 +616,9 @@ def started(db, client_id, job_id):
     db.execute('UPDATE routine_runs SET job_id=? WHERE id=?', (job_id,run['id']))
     if run['workflow_id']:
         db.execute('UPDATE workflow_runs SET job_id=? WHERE id=?', (job_id,run['workflow_id']))
-        workflows.event(db,run['workflow_id'],'installing','Routine Windows deployment started on the erased disk')
+        workflow = db.execute('SELECT stage FROM workflow_runs WHERE id=?', (run['workflow_id'],)).fetchone()
+        if workflow['stage'] not in ('failed', 'unsupported', 'cancelled'):
+            workflows.event(db,run['workflow_id'],'installing','Routine Windows deployment started on the bound disk')
     event(db,run,'windows-running','Windows deployment started')
 
 

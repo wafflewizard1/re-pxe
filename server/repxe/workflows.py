@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS workflow_intake(
  token_hash TEXT,expires TEXT,seen TEXT NOT NULL);
 '''
 CERT_LIMIT = 8 * 1024**2
-MEDIA_MARKER = 're-pxe-shredos-10'
+MEDIA_MARKER = 're-pxe-shredos-11'
 
 
 def now():
@@ -172,7 +172,7 @@ class Inventory(Input):
 
 class Claim(Input):
     mac: str = Field(pattern=r'^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$')
-    agent_version: Literal['re-pxe-shredos-1', 're-pxe-shredos-2', 're-pxe-shredos-3', 're-pxe-shredos-4', 're-pxe-shredos-5', 're-pxe-shredos-6', 're-pxe-shredos-7', 're-pxe-shredos-8', 're-pxe-shredos-9', 're-pxe-shredos-10']
+    agent_version: Literal['re-pxe-shredos-1', 're-pxe-shredos-2', 're-pxe-shredos-3', 're-pxe-shredos-4', 're-pxe-shredos-5', 're-pxe-shredos-6', 're-pxe-shredos-7', 're-pxe-shredos-8', 're-pxe-shredos-9', 're-pxe-shredos-10', 're-pxe-shredos-11']
     inventory: Inventory
 
 
@@ -264,7 +264,7 @@ def media(store):
         raise HTTPException(503, 're-pxe ShredOS media has not been published and validated')
     try:
         value = json.loads(path.read_text())
-        if value['agent_version'] not in ('re-pxe-shredos-1', 're-pxe-shredos-2', 're-pxe-shredos-3', 're-pxe-shredos-4', 're-pxe-shredos-5', 're-pxe-shredos-6', 're-pxe-shredos-7', 're-pxe-shredos-8', 're-pxe-shredos-9', MEDIA_MARKER) or value['validated'] is not True:
+        if value['agent_version'] not in ('re-pxe-shredos-1', 're-pxe-shredos-2', 're-pxe-shredos-3', 're-pxe-shredos-4', 're-pxe-shredos-5', 're-pxe-shredos-6', 're-pxe-shredos-7', 're-pxe-shredos-8', 're-pxe-shredos-9', 're-pxe-shredos-10', MEDIA_MARKER) or value['validated'] is not True:
             raise ValueError()
         if not re.fullmatch(r'[a-f0-9]{64}', value['release']):
             raise ValueError()
@@ -294,7 +294,7 @@ def progress_snapshot(row):
 
 
 def require_native_media(value):
-    if value['agent_version'] not in ('re-pxe-shredos-9', MEDIA_MARKER) or value.get('nwipe_version')!=erase_policy.NATIVE_VERSION:
+    if value['agent_version'] not in ('re-pxe-shredos-9', 're-pxe-shredos-10', MEDIA_MARKER) or value.get('nwipe_version')!=erase_policy.NATIVE_VERSION:
         raise HTTPException(409,'Native sanitize requires the validated nwipe 0.43 re-pxe ShredOS release')
 
 
@@ -520,7 +520,7 @@ def install(app, store, Role, allow):
     def intake_erase_ticket(spec: Claim, token: Credential):
         # Upgrade only this existing read-only RAM session. A lost authorization
         # response holds rather than issuing a second destructive ticket.
-        if spec.agent_version not in ('re-pxe-shredos-4', 're-pxe-shredos-5', 're-pxe-shredos-6', 're-pxe-shredos-7', 're-pxe-shredos-8', 're-pxe-shredos-9', MEDIA_MARKER): raise HTTPException(409, 'Update ShredOS for an in-place erase handoff')
+        if spec.agent_version not in ('re-pxe-shredos-4', 're-pxe-shredos-5', 're-pxe-shredos-6', 're-pxe-shredos-7', 're-pxe-shredos-8', 're-pxe-shredos-9', 're-pxe-shredos-10', MEDIA_MARKER): raise HTTPException(409, 'Update ShredOS for an in-place erase handoff')
         from . import routines
         with store().db() as db:
             intake = db.execute('SELECT * FROM workflow_intake WHERE token_hash=?', (digest(token),)).fetchone()
@@ -662,7 +662,7 @@ def install(app, store, Role, allow):
             target = next((d for d in spec.inventory.disks if d.identity == row['target']), None)
             value = json.loads(row['spec'])
             if value['method'] not in erase_policy.METHODS: raise HTTPException(409, 'Only nwipe methods are supported; republish this routine')
-            if erase_policy.extended(value['method']) and spec.agent_version not in ('re-pxe-shredos-9', MEDIA_MARKER):
+            if erase_policy.extended(value['method']) and spec.agent_version not in ('re-pxe-shredos-9', 're-pxe-shredos-10', MEDIA_MARKER):
                 raise HTTPException(409,'Native sanitize requires the validated nwipe 0.43 re-pxe ShredOS release')
             if target and target.transport == 'usb' and not value['allow_usb']:
                 raise HTTPException(409, 'This workflow excludes USB disks')
@@ -696,7 +696,7 @@ def install(app, store, Role, allow):
         value = json.loads(row['spec'])
         policy = erase_policy.settings(value)
         from . import branding
-        logo = branding.claim_logo(store()) if spec.agent_version in ('re-pxe-shredos-6','re-pxe-shredos-7','re-pxe-shredos-8','re-pxe-shredos-9',MEDIA_MARKER) else None
+        logo = branding.claim_logo(store()) if spec.agent_version in ('re-pxe-shredos-6','re-pxe-shredos-7','re-pxe-shredos-8','re-pxe-shredos-9','re-pxe-shredos-10',MEDIA_MARKER) else None
         return {'branding_logo': logo, 'id': row['id'], 'token': token, 'target_identity': row['target'], 'size_bytes': row['size'],'batch_targets':batch_targets,
                 **{k: policy.get(k, False) for k in erase_policy.authorized_keys(policy)},
                 'system_serial': spec.inventory.system_serial, 'settings_sha256': erase_policy.fingerprint(value),
@@ -806,7 +806,11 @@ def install(app, store, Role, allow):
             current = db.execute('SELECT * FROM workflow_runs WHERE id=?', (row['id'],)).fetchone()
             if current['report_hash']:
                 if current['report_hash'] == sha:
-                    return {'accepted': True, 'duplicate': True, 'stage': current['stage']}
+                    from . import routines
+                    routines.sync(db)
+                    routine = db.execute('SELECT r.stage FROM routine_runs r WHERE r.workflow_id=? OR r.id IN (SELECT run_id FROM routine_erase_disks WHERE workflow_id=?)', (row['id'],row['id'])).fetchone()
+                    return {'accepted': True, 'duplicate': True, 'stage': current['stage'],
+                            'reboot_for_routine': bool(routine and routine['stage'] in ('custom-boot','windows-boot','checkpoint'))}
                 raise HTTPException(409, 'Result is immutable')
             expected = json.loads(current['spec'])
             if current['stage'] != 'erasing':
@@ -840,7 +844,7 @@ def install(app, store, Role, allow):
             from . import routines
             routines.sync(db)
             routine = db.execute('SELECT r.stage FROM routine_runs r WHERE r.workflow_id=? OR r.id IN (SELECT run_id FROM routine_erase_disks WHERE workflow_id=?)', (row['id'],row['id'])).fetchone()
-        return {'accepted': True, 'reboot_for_routine': bool(routine and routine['stage'] == 'custom-boot')}
+        return {'accepted': True, 'reboot_for_routine': bool(routine and routine['stage'] in ('custom-boot', 'windows-boot', 'checkpoint'))}
 
     @app.get('/api/erase/status')
     def status(row: Session):

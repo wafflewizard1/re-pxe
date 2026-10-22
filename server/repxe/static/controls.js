@@ -32,10 +32,41 @@ async function showWindowsControls(id,record=true){
  const c=data.client;clientRows.set(c.id,c);$('windows-controls-title').textContent=deviceLabel(c);
  $('windows-controls-actions').innerHTML=clientActions(c)+'<button class="secondary compact" data-client-details="'+esc(c.id)+'">Asset details</button>';
  $('windows-controls-content').innerHTML='<p>'+clientStatusBadge(c)+'</p>'+stats([['Status',stageName(c.stage)],['Installation disk',c.target||'Not selected'],['Windows',c.windows||'Not selected'],['Windows preset',c.configuration_name||'Not selected'],['Last seen',clientMinutesAgo(c.last_seen)],['Session',c.id]])+'<div class="transfer">'+clientProgress(c)+'</div>'+(c.error?'<p class="error">'+esc(c.error)+'</p>':'')+(c.boot_blocked?'<p class="info-note">Driver completion is pending. Finish setup on the PC, or stop the PC locally before choosing Reinstall.</p>':'')+'<h3>Deployment events</h3>'+clientTimeline(data.job?.events||[])+'<h3>Operator actions</h3>'+clientTimeline(data.controls.map(r=>({stage:clientControlTitles[r.action]||r.action,timestamp:r.timestamp,detail:r.reason})));
+ $('windows-controls-content').innerHTML='<section><h3>Remote Windows controls</h3><p>Send files to the signed-in Windows user’s desktop. Existing files are kept; uploaded files are never run automatically.</p><div id="windows-remote-actions"></div><label>Desktop file <input type="file" id="windows-desktop-file"></label><p id="windows-remote-error" class="error" role="status"></p><div id="windows-remote-status"></div></section>'+$('windows-controls-content').innerHTML;
+ windowsRemoteClient=id;windowsRemoteState=null;
  openPortalDialog('windows-controls-dialog');if(record)rememberPortalNavigation({kind:'windows',id});
+ await refreshWindowsRemote(id);
 }
+let windowsRemoteClient=null,windowsRemoteState=null,windowsRemotePolling=false;
+const windowsRemotePending=new Set();
+async function refreshWindowsRemote(id=windowsRemoteClient){
+ if(!id||!webSession||!$('windows-controls-dialog').open)return;
+ const user=webSession.user.id,data=await api('/clients/'+id+'/windows');
+ if(!webSession||webSession.user.id!==user||windowsRemoteClient!==id||!$('windows-controls-dialog').open)return;
+ windowsRemoteState=data;
+ const disabled=!data.available||windowsRemotePending.has(id)?' disabled':'';
+ $('windows-remote-actions').innerHTML='<div class="actions"><button class="secondary compact" data-windows-power="restart"'+disabled+'>Restart Windows</button><button class="danger compact" data-windows-power="shutdown"'+disabled+'>Shut down Windows</button><button class="primary compact" data-windows-send'+disabled+'>Upload to desktop</button></div>';
+ $('windows-remote-status').innerHTML='<p>'+esc(!data.available?data.reason||'Windows client is not connected.':data.busy?'Driver work is running. Commands will wait until it finishes.':'Windows client connected. Power commands take effect after 10 seconds.')+'</p>'+((data.commands||[]).length?table(['Command / file','Status','Result'],data.commands.map(c=>[esc(c.filename||c.action)+(c.size?' · '+esc(bytes(c.size)):''),esc(c.status),esc(c.result?.error||c.result?.path||(c.status==='completed'&&c.action!=='file'?'Windows accepted the power command.':''))])):'');
+}
+async function windowsRemoteClick(e){
+ const power=e.target.closest('[data-windows-power]'),send=e.target.closest('[data-windows-send]');
+ if(!power&&!send)return false;
+ const id=windowsRemoteClient,state=windowsRemoteState;
+ if(!state?.available||windowsRemotePending.has(id))return true;
+ const job=state.job_id,file=send?$('windows-desktop-file').files?.[0]:null;
+ if(send&&!file){$('windows-remote-error').textContent='Choose a file to send to the desktop.';return true;}
+ windowsRemotePending.add(id);$('windows-remote-error').textContent=send?'Uploading to the server…':'';
+ try{
+  if(send)await api('/clients/'+id+'/windows/files?'+new URLSearchParams({filename:file.name,expected_job_id:job}),{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});
+  else await api('/clients/'+id+'/windows/commands',{method:'POST',body:JSON.stringify({action:power.dataset.windowsPower,expected_job_id:job})});
+  if(id===windowsRemoteClient){$('windows-remote-error').textContent='';if(send)$('windows-desktop-file').value='';}
+ }catch(error){if(id===windowsRemoteClient)$('windows-remote-error').textContent=error.message;}
+ finally{windowsRemotePending.delete(id);if(id===windowsRemoteClient)await refreshWindowsRemote(id);}
+ return true;
+}
+setInterval(async()=>{if(windowsRemotePolling||!webSession||!$('windows-controls-dialog').open)return;windowsRemotePolling=true;try{await refreshWindowsRemote();}catch(error){if($('windows-controls-dialog').open)$('windows-remote-error').textContent=error.message;}finally{windowsRemotePolling=false;}},3000);
 for(const [button,dialog] of [['attention-close','attention-dialog'],['windows-controls-close','windows-controls-dialog']])$(button).addEventListener('click',()=>$(dialog).close());
-for(const id of ['attention-actions','windows-controls-actions','windows-controls-content'])$(id).addEventListener('click',clientClick);
+for(const id of ['attention-actions','windows-controls-actions','windows-controls-content'])$(id).addEventListener('click',async e=>{if(!await windowsRemoteClick(e))await clientClick(e);});
 document.addEventListener('click',async e=>{const client=e.target.closest('[data-attention-client]'),routine=e.target.closest('[data-attention-routine]'),windows=e.target.closest('[data-windows-controls]');try{if(client)await showAttention('client',client.dataset.attentionClient);else if(routine)await showAttention('routine',routine.dataset.attentionRoutine);else if(windows)await showWindowsControls(windows.dataset.windowsControls);}catch(error){message(error.message,true);}});
 
 $('editor-unsaved-close').addEventListener('click',()=>$('editor-keep').click());

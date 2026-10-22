@@ -93,7 +93,7 @@ int driver_console(){
     Console ui;SetProcessDPIAware();auto instance=GetModuleHandleW(nullptr);WNDCLASSW cls{};cls.hInstance=instance;cls.lpfnWndProc=procedure;cls.lpszClassName=L"repxeDriverConsole";cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);if(!RegisterClassW(&cls)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)throw std::runtime_error("Register driver console");
     auto h=CreateWindowExW(0,cls.lpszClassName,L"re-pxe - Driver console",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,30,15,996,704,nullptr,nullptr,instance,&ui);if(!h)throw std::runtime_error("Create driver console");
     auto console=GetConsoleWindow();if(console)ShowWindow(console,SW_HIDE);ShowWindow(h,SW_SHOW);UpdateWindow(h);ui.line("re-pxe driver console.");ui.start("scan");
-    ui.heartbeat=std::thread([&ui]{while(!ui.closing){try{driver_session_pulse();}catch(...){}for(int i=0;i<30&&!ui.closing;++i)std::this_thread::sleep_for(std::chrono::milliseconds(100));}});
+    ui.heartbeat=std::thread([&ui]{while(!ui.closing){try{driver_session_pulse();driver_remote_controls();}catch(...){}for(int i=0;i<30&&!ui.closing;++i)std::this_thread::sleep_for(std::chrono::milliseconds(100));}});
     MSG msg{};while(GetMessageW(&msg,nullptr,0,0)>0){if(msg.message==WM_KEYDOWN&&msg.wParam==VK_RETURN&&GetFocus()==ui.controls.at(Command)){PostMessageW(h,WM_COMMAND,Run,0);continue;}if(!IsDialogMessageW(h,&msg)){TranslateMessage(&msg);DispatchMessageW(&msg);}}
     ui.closing=true;if(console)ShowWindow(console,SW_SHOW);return 0;
 }

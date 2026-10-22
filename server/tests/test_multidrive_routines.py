@@ -9,7 +9,7 @@ from test_routines import select, managed_ticket
 from test_workflows import install_media, PDF, result, MAC, SIZE, TARGET
 
 
-def prepare(lab, mode='manual', method='zero', disks=None, verify_image=True):
+def prepare(lab, mode='manual', method='zero', disks=None, verify_image=True, failure_halt=False):
     c,root,p=lab
     install_media(root)
     path=root/'boot/pxe/shredos/current.json';media=json.loads(path.read_text());media['agent_version']='re-pxe-shredos-4';path.write_text(json.dumps(media))
@@ -17,6 +17,10 @@ def prepare(lab, mode='manual', method='zero', disks=None, verify_image=True):
     spec={'name':'All drives','steps':[{'id':'boot','kind':'boot'},
         {'id':'erase','kind':'erase','method':method,'target_policy':'all-internal'},
         {'id':'windows','kind':'windows','profile_id':p['id'],'target_policy':mode,'verify_image':verify_image}, {'id':'finish','kind':'finish'}]}
+    if failure_halt:
+        spec.update(graph=True,connections=[{'source':'boot','target':'erase'},
+            {'source':'erase','target':'windows'},{'source':'erase','target':'finish','outcome':'failure'},
+            {'source':'windows','target':'finish'}])
     r=c.post('/api/routines',headers=auth(),json=spec);assert r.status_code==201,r.text
     uid=r.json()['id'];r=c.post('/api/routines/'+uid+'/publish',headers=auth(),json={'expected_generation':1});assert r.status_code==200,r.text
     c.put('/api/routine-settings',headers=auth(),json={'default_id':uid});select(c)
@@ -93,13 +97,14 @@ def test_batch_same_session_progress_and_manual_portal_choice(lab):
     assert len([n for n in zipfile.ZipFile(io.BytesIO(archive.content)).namelist() if n.startswith('shredos-')])==2
 
 
-def test_failed_first_drive_never_authorizes_second_or_windows(lab):
+def test_failed_first_drive_cancels_remaining_wipes_but_allows_windows(lab):
     c,p,body,intake=prepare(lab);run,h=erase_one(c,body,intake,True)
     row=c.get('/api/routines',headers=auth()).json()['runs'][0]
-    assert row['stage']=='failed' and row['erase_disks'][1]['stage']=='cancelled'
-    assert not c.get('/api/erase/status',headers=h).json()['reboot_for_routine']
+    assert row['stage']=='windows-boot' and row['erase_disks'][1]['stage']=='cancelled'
+    assert row['error'] and row['erase_disks'][0]['stage']=='failed'
+    assert c.get('/api/erase/status',headers=h).json()['reboot_for_routine']
     assert c.post('/api/intake/erase-ticket',headers=intake,json=body).status_code==409
-    assert 'wimboot' not in c.get('/pxe/managed.ipxe',params={'mac':MAC}).text
+    assert 'wimboot' in c.get('/pxe/managed.ipxe',params={'mac':MAC}).text
 
 
 def test_every_internal_drive_uses_nwipe_independent_of_firmware(lab):

@@ -314,6 +314,9 @@ def test_unix_socket_bridge_roundtrip_and_host_conflict(monkeypatch):
             self.send_response(200);self.end_headers()
             self.wfile.write(b'{"enabled":true,"phase":"available"}')
         def do_POST(self):
+            # Consume the request like the real updater. Closing a Unix socket
+            # with unread body bytes can reset an otherwise valid response.
+            self.rfile.read(int(self.headers.get('Content-Length', '0')))
             self.send_response(409);self.end_headers()
             self.wfile.write(b'{"detail":"Another update is running"}')
     with tempfile.TemporaryDirectory(prefix='re-pxe-socket-') as directory:
