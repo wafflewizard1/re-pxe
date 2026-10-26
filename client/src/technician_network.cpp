@@ -34,7 +34,7 @@ Json request_api(const std::string& origin,const std::string& token,const std::s
     auto url=wide(origin);URL_COMPONENTS c{};c.dwStructSize=sizeof(c);c.dwHostNameLength=static_cast<DWORD>(-1);
     if(!WinHttpCrackUrl(url.c_str(),0,0,&c) || c.nScheme!=INTERNET_SCHEME_HTTPS)throw std::runtime_error("Invalid HTTPS origin");
     std::wstring host(c.lpszHostName,c.dwHostNameLength);
-    Internet session(WinHttpOpen(L"re-pxe/0.14.0",WINHTTP_ACCESS_TYPE_NO_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
+    Internet session(WinHttpOpen(L"re-pxe/0.14.1",WINHTTP_ACCESS_TYPE_NO_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
     if(!WinHttpSetTimeouts(session.h,5000,5000,10000,10000))error("Set HTTPS timeouts");
     Internet connection(WinHttpConnect(session.h,host.c_str(),c.nPort,0));
     std::atomic<DWORD> tls_flags{0};

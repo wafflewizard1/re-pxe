@@ -10,9 +10,10 @@ An explicit Failure connection takes precedence. Active or uncertain controller
 operations still hold the routine until their outcome is known.
 
 Windows controls in the portal can restart or shut down an online Windows Audit
-client, or upload a browser file to the signed-in user's desktop. This requires
-client 0.14.0 or newer. Commands wait for driver work to finish and are bound to
-the current installation. Transfers show delivery status and the destination;
+client, or upload a browser file to the signed-in user's desktop. File transfers
+run during driver installation with client 0.14.1 or newer. Power commands wait
+for driver work to finish. All controls are bound to the current installation.
+Transfers show delivery status and the destination;
 existing files are kept and received files are never executed automatically.
 
 ## Install

@@ -8,7 +8,7 @@
 #include <stdexcept>
 
 namespace {
-const char* help=R"(re-pxe native AMD64 client 0.14.0
+const char* help=R"(re-pxe native AMD64 client 0.14.1
 
   repxe pxe --boot PATH
   repxe ui [--config PATH] [--audit-log PATH]
@@ -36,7 +36,7 @@ int wmain(int argc,wchar_t** argv){
     using namespace repxe;
     try{
         if(argc<2 || std::wstring(argv[1])==L"--help" || std::wstring(argv[1])==L"help"){std::cout<<help;return 0;}
-        if(std::wstring(argv[1])==L"version"){std::cout<<"0.14.0\n";return 0;}
+        if(std::wstring(argv[1])==L"version"){std::cout<<"0.14.1\n";return 0;}
         std::map<std::wstring,std::wstring> options;
         for(int i=2;i<argc;++i){std::wstring key=argv[i];if(key==L"--execute"){if(options.contains(key))throw std::runtime_error("Duplicate option");options[key]=L"true";continue;}
             if(key.rfind(L"--",0)!=0 || i+1>=argc)throw std::runtime_error("Options require --name value");

@@ -45,6 +45,7 @@ class Power(Input):
 class Poll(Input):
     client_version: str = Field(pattern=r'^[0-9]{1,5}\.[0-9]{1,5}\.[0-9]{1,5}$')
     busy: bool = Field(strict=True)
+    accept_commands: bool = Field(default=True, strict=True)
 
 
 class Result(Input):
@@ -107,6 +108,17 @@ def available_agent(db, row):
     return agent
 
 
+def concurrent_files(version):
+    return tuple(map(int, version.split('.'))) >= (0,14,1)
+
+
+def file_agent(db, row):
+    agent = available_agent(db, row)
+    if agent['busy'] and not concurrent_files(agent['version']):
+        raise HTTPException(409, 'Update this Windows client to 0.14.1 to transfer files during driver work')
+    return agent
+
+
 def queue(db, row, action, filename='', size=0, sha256=''):
     expire(db)
     available_agent(db, row)
@@ -131,7 +143,8 @@ def install(app, store, Role, allow, Credential):
             try: agent = available_agent(db, client_for(db, uid))
             except HTTPException as exc: reason = exc.detail
             commands = [projection(r) for r in db.execute('SELECT * FROM windows_commands WHERE client_id=? ORDER BY created DESC LIMIT 50', (uid,))]
-            return dict(available=agent is not None, busy=bool(agent and agent['busy']), job_id=row['job_id'],
+            return dict(available=agent is not None, busy=bool(agent and agent['busy']),
+                        files_during_drivers=bool(agent and concurrent_files(agent['version'])), job_id=row['job_id'],
                         reason=reason, commands=commands)
 
     @app.post('/api/clients/{uid}/windows/commands', status_code=201)
@@ -150,7 +163,7 @@ def install(app, store, Role, allow, Credential):
             raise HTTPException(415, 'Binary file upload required')
         with store().db() as db:
             row = client_for(db, uid, expected_job_id)
-            available_agent(db, row)
+            file_agent(db, row)
         directory = store().root/'windows-controls'
         directory.mkdir(exist_ok=True)
         partial = directory/(str(uuid.uuid4())+'.part')
@@ -167,6 +180,7 @@ def install(app, store, Role, allow, Credential):
             if not size: raise HTTPException(422, 'Choose a nonempty file')
             with store().db() as db:
                 row = client_for(db, uid, expected_job_id)
+                file_agent(db, row)
                 command = queue(db, row, 'file', filename, size, sha.hexdigest())
                 destination = directory/command['id']
                 partial.replace(destination)
@@ -187,8 +201,12 @@ def install(app, store, Role, allow, Credential):
             db.execute('INSERT INTO windows_agents VALUES(?,?,?,?,?) ON CONFLICT(job_id) DO UPDATE SET version=excluded.version,seen=excluded.seen,busy=excluded.busy',
                        (job_id, row['id'], spec.client_version, now().isoformat(), int(spec.busy)))
             command = None
-            if not spec.busy:
-                command = db.execute("SELECT * FROM windows_commands WHERE job_id=? AND status IN ('queued','running') ORDER BY created LIMIT 1", (job_id,)).fetchone()
+            if spec.accept_commands:
+                command = db.execute("""SELECT * FROM windows_commands WHERE job_id=? AND status IN ('queued','running')
+                    AND (?=0 OR (action='file' AND ?=1))
+                    ORDER BY CASE WHEN action='file' THEN 0 ELSE 1 END,
+                             CASE WHEN status='running' THEN 0 ELSE 1 END, created LIMIT 1""",
+                    (job_id, int(spec.busy), int(concurrent_files(spec.client_version)))).fetchone()
                 if command:
                     db.execute("UPDATE windows_commands SET status='running',claimed=? WHERE id=?", (now().isoformat(), command['id']))
             result = projection(command) if command else None

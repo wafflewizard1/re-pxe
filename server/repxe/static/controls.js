@@ -45,14 +45,17 @@ async function refreshWindowsRemote(id=windowsRemoteClient){
  if(!webSession||webSession.user.id!==user||windowsRemoteClient!==id||!$('windows-controls-dialog').open)return;
  windowsRemoteState=data;
  const disabled=!data.available||windowsRemotePending.has(id)?' disabled':'';
- $('windows-remote-actions').innerHTML='<div class="actions"><button class="secondary compact" data-windows-power="restart"'+disabled+'>Restart Windows</button><button class="danger compact" data-windows-power="shutdown"'+disabled+'>Shut down Windows</button><button class="primary compact" data-windows-send'+disabled+'>Upload to desktop</button></div>';
- $('windows-remote-status').innerHTML='<p>'+esc(!data.available?data.reason||'Windows client is not connected.':data.busy?'Driver work is running. Commands will wait until it finishes.':'Windows client connected. Power commands take effect after 10 seconds.')+'</p>'+((data.commands||[]).length?table(['Command / file','Status','Result'],data.commands.map(c=>[esc(c.filename||c.action)+(c.size?' · '+esc(bytes(c.size)):''),esc(c.status),esc(c.result?.error||c.result?.path||(c.status==='completed'&&c.action!=='file'?'Windows accepted the power command.':''))])):'');
+ const fileDisabled=disabled||(data.busy&&!data.files_during_drivers?' disabled':'');
+ $('windows-remote-actions').innerHTML='<div class="actions"><button class="secondary compact" data-windows-power="restart"'+disabled+'>Restart Windows</button><button class="danger compact" data-windows-power="shutdown"'+disabled+'>Shut down Windows</button><button class="primary compact" data-windows-send'+fileDisabled+'>Upload to desktop</button></div>';
+ const status=!data.available?data.reason||'Windows client is not connected.':data.busy?(data.files_during_drivers?'Files transfer immediately while driver work runs. Restart and shutdown wait until it finishes.':'Update this Windows client to 0.14.1 to transfer files during driver work.'):'Windows client connected. Power commands take effect after 10 seconds.';
+ $('windows-remote-status').innerHTML='<p>'+esc(status)+'</p>'+((data.commands||[]).length?table(['Command / file','Status','Result'],data.commands.map(c=>[esc(c.filename||c.action)+(c.size?' · '+esc(bytes(c.size)):''),esc(c.action==='file'&&c.status==='queued'?'Ready to transfer':c.status),esc(c.result?.error||c.result?.path||(c.status==='completed'&&c.action!=='file'?'Windows accepted the power command.':''))])):'');
 }
 async function windowsRemoteClick(e){
  const power=e.target.closest('[data-windows-power]'),send=e.target.closest('[data-windows-send]');
  if(!power&&!send)return false;
  const id=windowsRemoteClient,state=windowsRemoteState;
  if(!state?.available||windowsRemotePending.has(id))return true;
+ if(send&&state.busy&&!state.files_during_drivers){$('windows-remote-error').textContent='Update this Windows client to 0.14.1 to transfer files during driver work.';return true;}
  const job=state.job_id,file=send?$('windows-desktop-file').files?.[0]:null;
  if(send&&!file){$('windows-remote-error').textContent='Choose a file to send to the desktop.';return true;}
  windowsRemotePending.add(id);$('windows-remote-error').textContent=send?'Uploading to the server…':'';

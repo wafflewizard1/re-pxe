@@ -89,6 +89,46 @@ def test_cookie_upload_requires_csrf_and_preserves_file_bytes(lab):
     assert r.status_code==201,r.text
 
 
+@pytest.mark.parametrize('power',['restart','shutdown'])
+@pytest.mark.parametrize('already_claimed',[False,True])
+def test_files_arrive_during_driver_work_ahead_of_waiting_power(lab,power,already_claimed):
+    c,root,p=lab
+    client,job,cap,pe,base=session(c,p)
+    portal='/api/clients/'+client+'/windows'
+    power_id=c.post(portal+'/commands',headers=auth(),json={'action':power,'expected_job_id':job}).json()['id']
+    if already_claimed:
+        assert c.post(base+'/poll',headers=cap,json={'client_version':'0.14.1','busy':False}).json()['command']['id']==power_id
+    poll={'client_version':'0.14.1','busy':True}
+    assert c.post(base+'/poll',headers=cap,json=poll).json()['command'] is None
+    assert c.get(portal,headers=auth()).json()['files_during_drivers'] is True
+    payload=b'Desktop delivery while drivers are still running'
+    file=c.post(portal+'/files',headers={**auth(),'Content-Type':'application/octet-stream'},
+                params={'filename':'notes.txt','expected_job_id':job},content=payload)
+    assert file.status_code==201,file.text
+    file_id=file.json()['id']
+    # A progress-only pulse during a previous transfer must never claim the next file.
+    assert c.post(base+'/poll',headers=cap,json={**poll,'accept_commands':False}).json()['command'] is None
+    with c.app.state.store.db() as db:
+        assert db.execute('SELECT status FROM windows_commands WHERE id=?',(file_id,)).fetchone()[0]=='queued'
+    command=c.post(base+'/poll',headers=cap,json=poll).json()['command']
+    assert command['id']==file_id and command['action']=='file'
+    assert c.get(command['download_path'],headers=cap).content==payload
+    assert c.post(base+'/commands/'+file_id+'/result',headers=cap,json={'status':'completed','path':'C:\\Users\\Administrator\\Desktop\\notes.txt'}).status_code==200
+    assert c.post(base+'/poll',headers=cap,json=poll).json()['command'] is None
+    assert c.post(base+'/poll',headers=cap,json={**poll,'busy':False}).json()['command']['id']==power_id
+
+
+def test_legacy_busy_client_does_not_claim_files_it_cannot_deliver(lab):
+    c,root,p=lab
+    client,job,cap,pe,base=session(c,p)
+    portal='/api/clients/'+client+'/windows'
+    c.post(base+'/poll',headers=cap,json={'client_version':'0.14.0','busy':True})
+    response=c.post(portal+'/files',headers={**auth(),'Content-Type':'application/octet-stream'},
+                    params={'filename':'notes.txt','expected_job_id':job},content=b'notes')
+    assert response.status_code==409 and '0.14.1' in response.text
+    assert c.get(portal,headers=auth()).json()['commands']==[]
+
+
 @pytest.mark.parametrize('end',['expired','terminal','retired','new-session'])
 def test_old_commands_cannot_reach_reinstalled_or_ended_client(lab,end):
     c,root,p=lab

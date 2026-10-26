@@ -209,7 +209,7 @@ Json inventory(){
             {"size_bytes",disk.at("sizeBytes")},{"removable",disk.at("removable")},
             {"bus_type",bus==17?"NVMe":bus==11?"SATA":bus==7?"USB":bus==1?"SCSI":bus==8?"RAID":"Other"}});
     }
-    return {{"specs",specs},{"manufacturer",bios(L"SystemManufacturer")},{"model",bios(L"SystemProductName")},{"schemaVersion",1},{"toolVersion","0.14.0"},{"readOnly",true},{"environment",{{"winpe",winpe()},{"administrator",admin()},
+    return {{"specs",specs},{"manufacturer",bios(L"SystemManufacturer")},{"model",bios(L"SystemProductName")},{"schemaVersion",1},{"toolVersion","0.14.1"},{"readOnly",true},{"environment",{{"winpe",winpe()},{"administrator",admin()},
         {"firmware",firmware==FirmwareTypeUefi?"uefi":firmware==FirmwareTypeBios?"bios":"unknown"},
         {"architecture",system.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64?"amd64":"unsupported"},
         {"executable",utf8(executable())}}},{"disks",disks},{"volumes",volumes},{"warnings",warnings}};
@@ -519,7 +519,7 @@ Json deploy_internal(Json config,const std::filesystem::path& config_path,bool e
     plan["blankTargetVerified"]=blank_only;plan["targetWillBeFormatted"]=target_policy=="format-selected-disk";plan["layoutBytes"]=parts;if(!execute)return plan;
     Handle mutex(CreateMutexW(nullptr,TRUE,L"Global\\repxeDeployment"));if(!mutex)fail("Create deployment lock");if(GetLastError()==ERROR_ALREADY_EXISTS)throw std::runtime_error("Another deployment owns the deployment lock");
     auto id=sha256(config_path).substr(0,16);auto jobs=std::filesystem::path(wide(config.at("jobDirectory")));auto job=jobs/(L"deploy-"+wide(id)+L".json");if(std::filesystem::exists(job))throw std::runtime_error("Deployment job already exists; automatic destructive retries are refused");
-    Json state={{"schemaVersion",1},{"toolVersion","0.14.0"},{"id",id},{"stage","preflight"},{"startedUtc",utc_now()},{"plan",plan},{"history",Json::array()},{"diskWritesPerformed",false}};
+    Json state={{"schemaVersion",1},{"toolVersion","0.14.1"},{"id",id},{"stage","preflight"},{"startedUtc",utc_now()},{"plan",plan},{"history",Json::array()},{"diskWritesPerformed",false}};
     auto stage=[&](const char* name){state["stage"]=name;state.erase("progressPercent");if(std::string(name)=="applying-image")state["progressPercent"]=0;state["history"].push_back({{"stage",name},{"utc",utc_now()}});write_json(job,state);std::cerr<<"Deployment stage: "<<name<<"\n";if(progress)progress(state);};
     auto tool=[&](const char* name,std::vector<std::wstring> args,const std::string& input=""){auto log=jobs/(L"deploy-"+wide(id)+L"-"+wide(name)+L".log");std::function<void(int)> observe;
         if(std::string(name)=="apply")observe=[&](int percent){state["progressPercent"]=percent;state["imageApplyPercent"]=percent;write_json(job,state);if(progress)progress(state);};
@@ -788,7 +788,7 @@ void stage_completion(const std::filesystem::path& volume,const Json& target,con
     std::filesystem::create_directories(root);protect_path(root);
     for(size_t i=0;i<previous_answers.size();++i){auto backup=root/(L"reference-unattend-"+std::to_wstring(i)+L".xml");std::filesystem::copy_file(previous_answers[i],backup);protect_path(backup);std::filesystem::remove(previous_answers[i]);}
     auto exe=root/L"re-pxe.exe";std::filesystem::copy_file(executable(),exe);protect_path(exe);
-    Json state={{"schemaVersion",1},{"toolVersion","0.14.0"},{"id",id},{"stage","awaiting-windows"},{"target",target},{"diskGuid",guid_text(disk_id)},{"windowsPartitionGuid",guid_text(partition_id)},
+    Json state={{"schemaVersion",1},{"toolVersion","0.14.1"},{"id",id},{"stage","awaiting-windows"},{"target",target},{"diskGuid",guid_text(disk_id)},{"windowsPartitionGuid",guid_text(partition_id)},
         {"clientSha256",sha256(exe)},{"kernelSha256",sha256(volume/L"Windows\\System32\\ntoskrnl.exe")},{"imageSha256",config.at("sha256")},{"imageIndex",config.value("imageIndex",1)},
         {"history",Json::array()},{"bootObservations",Json::array()},{"driverActions",Json::array()},{"deliveryStatus","local-only"},{"generalizationPerformed",false}};
     if(config.value("driverConsole",false)){state["driverConsole"]=true;state["driverAutomaticAttempted"]=false;if(!config.contains("windowsUpdate"))state["windowsUpdateRegistry"]=pause_update_policy(volume/L"Windows");}
@@ -1281,23 +1281,32 @@ void driver_session_pulse(){
 }
 
 void driver_remote_controls(){
-    // Only the installed Audit agent can poll. Hold the same operation locks as
-    // local driver actions so a portal command cannot overlap their work.
+    // Probe driver ownership briefly. File transfers never hold driver locks;
+    // only power commands must acquire them again before changing Windows.
     thread_local std::optional<CompletionInstallation> cached;
     if(!cached){cached=completion_installation({});driver_environment(*cached);}
     const auto& context=*cached;
-    OperationLock operation(L"Global\\repxeCompletion"),worker(L"Global\\repxeDriverUpdate");
     verify_protected(context.file);
     if(std::filesystem::file_size(context.file)>4*MiB)throw std::runtime_error("Driver state exceeds control bound");
     auto state=read_json(context.file);
     if(state.value("stage",std::string())=="complete")return;
-    bool busy=!operation||!worker||state.value("driverInstallationMayBeInProgress",false);
+    bool busy;
+    {
+        OperationLock operation(L"Global\\repxeCompletion"),worker(L"Global\\repxeDriverUpdate");
+        busy=!operation||!worker||state.value("driverInstallationMayBeInProgress",false);
+    }
     const auto connection=driver_connection(context);
-    Json request={{"client_version","0.14.0"},{"busy",busy}};
+    Json request={{"client_version","0.14.1"},{"busy",busy}};
     auto response=pxe_api(connection.origin,connection.token,connection.path+"/windows/poll",&request);
-    if(busy||!response.contains("command")||response.at("command").is_null())return;
+    if(!response.contains("command")||response.at("command").is_null())return;
     auto command=response.at("command");validate_windows_command(command,connection.path);
     const auto id=command.at("id").get<std::string>(),action=command.at("action").get<std::string>();
+    std::unique_ptr<OperationLock> operation,worker;
+    if(action!="file"){
+        operation=std::make_unique<OperationLock>(L"Global\\repxeCompletion");
+        worker=std::make_unique<OperationLock>(L"Global\\repxeDriverUpdate");
+        if(!*operation||!*worker||read_json(context.file).value("driverInstallationMayBeInProgress",false))return;
+    }
     const auto receipt_file=context.root/L"windows-control-receipts.json";
     Json receipts=Json::object();
     if(std::filesystem::exists(receipt_file)){
@@ -1320,7 +1329,18 @@ void driver_remote_controls(){
                 const auto staged=directory/(wide(id)+L".part");
                 if(std::filesystem::exists(staged)){no_reparse(staged);std::filesystem::remove(staged);}
                 try{
-                    pxe_download(connection.origin,connection.token,command.at("download_path"),staged,command.at("size"));
+                    auto last_pulse=GetTickCount64();
+                    pxe_download(connection.origin,connection.token,command.at("download_path"),staged,command.at("size"),[&](unsigned long long){
+                        if(GetTickCount64()-last_pulse<10000)return;
+                        last_pulse=GetTickCount64();
+                        // Keep the portal online during a large transfer. This
+                        // pulse advertises activity without claiming another file.
+                        try{
+                            completion_pulse(context.root,"completing");
+                            Json pulse={{"client_version","0.14.1"},{"busy",true},{"accept_commands",false}};
+                            pxe_api(connection.origin,connection.token,connection.path+"/windows/poll",&pulse);
+                        }catch(...){}
+                    });
                     if(sha256(staged)!=command.at("sha256"))throw std::runtime_error("Uploaded desktop file hash differs");
                     PWSTR known=nullptr;
                     if(FAILED(SHGetKnownFolderPath(FOLDERID_Desktop,KF_FLAG_CREATE,nullptr,&known)))throw std::runtime_error("Cannot locate the signed-in user's Desktop");
