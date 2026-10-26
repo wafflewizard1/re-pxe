@@ -7,7 +7,7 @@ const reportTableColumns=[
  ['serial','Laptop / serial','text'],['routine','Routine','text'],['status','Outcome','text'],['processed','Processed / last activity','date'],
  ['battery_health','Battery health %','percent','Lowest capacity health when multiple batteries are reported.'],
  ['battery_cycles','Battery cycles','number','Highest reported battery cycle count.'],
- ['storage_bytes','Total disk size','bytes','Combined capacity of all recorded drives, including removable drives.'],
+ ['storage_bytes','Total disk size','bytes','Combined known capacity of all recorded drives, including removable drives.'],
  ['drive_count','Drive count','number'],['memory_bytes','RAM','bytes'],['cpu','Processor','text'],
  ['manufacturer','Manufacturer','text'],['model','Model','text'],['storage_models','Disk models','text'],['storage_serials','Disk serials','text'],
  ['smart','SMART health','text','Partial means at least one recorded drive has no SMART verdict.'],

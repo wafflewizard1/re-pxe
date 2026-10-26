@@ -89,7 +89,7 @@ def report_source():
     return 'WITH evidence AS ('+legacy+' UNION ALL '+routine+') '
 
 
-def list_reports(db, search='', status='all', start=None, end=None, page=1, page_size=50, sort='serial', order='asc', source=None, seen_after=None, date_field='activity', timezone_name='UTC', include_removed=True):
+def list_reports(db, search='', status='all', start=None, end=None, page=1, page_size=50, sort='serial', order='asc', source=None, seen_after=None, date_field='activity', timezone_name='UTC', include_removed=True, include_columns=False):
     from . import routines
     routines.sync(db)
     filters=[];params=[]
@@ -120,11 +120,13 @@ def list_reports(db, search='', status='all', start=None, end=None, page=1, page
               'routine':"lower(COALESCE(NULLIF(routine_name,''),'Earlier Windows job'))"}.get(sort)
     if ordering is None: ordering=report_columns.ordering(sort)
     certificate_available='(certificate_id IS NOT NULL OR EXISTS (SELECT 1 FROM routine_erase_disks d JOIN workflow_runs w ON w.id=d.workflow_id WHERE d.run_id=evidence.run_id AND (w.certificate_sha256 IS NOT NULL OR EXISTS (SELECT 1 FROM workflow_phase_certificates p WHERE p.run_id=w.id))))'
-    rows=db.execute(report_columns.source(prefix)+'SELECT *, '+certificate_available+' has_shred_report FROM report_columns evidence'+where+' ORDER BY '+ordering+' '+order+(',updated DESC' if sort=='serial' else '')+',id '+order+' LIMIT ? OFFSET ?',[*params,page_size,(page-1)*page_size]).fetchall()
+    enriched=include_columns or sort in report_columns.FIELDS
+    projection=(report_columns.source(prefix)+'SELECT *, '+certificate_available+' has_shred_report FROM report_columns evidence') if enriched else prefix+'SELECT *, '+certificate_available+' has_shred_report FROM evidence'
+    rows=db.execute(projection+where+' ORDER BY '+ordering+' '+order+(',updated DESC' if sort=='serial' else '')+',id '+order+' LIMIT ? OFFSET ?',[*params,page_size,(page-1)*page_size]).fetchall()
     reports=[]
     for r in rows:
         item={k:r[k] for k in r.keys() if k not in ('search_inventory','search_pre_inventory','search_image') and not k.startswith('column_')};item['model']=item['model'] or item['device_model'] or 'Unidentified device'
-        item['column_data']={key:r['column_'+key] for key in report_columns.FIELDS}
+        if include_columns:item['column_data']={key:r['column_'+key] for key in report_columns.FIELDS}
         item['processed_at']=item['updated'] if item['canonical_stage'] in TERMINAL else None
         item['has_completion_report']=bool(item['has_completion_report']);item['has_shred_report']=bool(item['has_shred_report'])
         item['status_label']=display(item['stage']);reports.append(item)
@@ -474,7 +476,7 @@ def install(app,store,Role,allow):
         if end==date.max:raise HTTPException(422,'Through date must be before 31 December 9999')
         try:valid_timezone(timezone)
         except ValueError as exc:raise HTTPException(422,str(exc)) from None
-        with store().db() as db:return list_reports(db,search,status,start,end,page,page_size,sort,order,date_field=date_field,timezone_name=timezone)
+        with store().db() as db:return list_reports(db,search,status,start,end,page,page_size,sort,order,date_field=date_field,timezone_name=timezone,include_columns=True)
 
     @app.post('/api/job-reports/export')
     def export(spec:Export,role:Role):

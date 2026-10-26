@@ -85,7 +85,9 @@ def test_routine_pre_windows_specs_and_retained_smart_are_available(lab):
     assert columns['cpu']=='Earlier CPU' and columns['battery_health'] is None
     assert columns['smart']=='Failed' and columns['power_on_hours']==0
     # Later Windows inventory can omit SMART while the routine still retains it.
-    _,job=record(c,p,2,deepcopy(SPECS))
+    c.put('/api/routine-settings',headers=auth(),json={'enabled':False})
+    final=deepcopy(SPECS);final['system']['serial']='PRE-001'
+    _,job=record(c,p,2,final)
     with c.app.state.store.db() as db:
         client=db.execute('SELECT id FROM clients WHERE job_id=?',(job,)).fetchone()[0]
         db.execute('UPDATE routine_runs SET job_id=?,client_id=? WHERE id=?',(job,client,run['id']))
