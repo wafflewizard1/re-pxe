@@ -695,6 +695,49 @@ test('dashboard recent attention badges open the same routine or client action i
  const html=f.element('recent-jobs').innerHTML;assert.match(html,/data-attention-routine="run-attention"/);assert.match(html,/data-attention-client="client-attention"/);assert.match(html,/Needs attention · Failed/);
 });
 
+test('recent jobs are ordered by activity rather than PC serial in both dashboard modes',()=>{
+ const f=fixture(),recent=[{id:'old',system_serial:'A-001',updated:'2026-10-10T01:00:00+13:00',stage:'complete'},
+ {id:'new',system_serial:'Z-999',updated:'2026-10-09T14:00:00Z',stage:'complete'}];
+ f.dashboard.recent_jobs=recent;f.dashboard.routines={enabled:false,recent:[recent[0]],active:[],choices:[],counts:{}};
+ f.call('renderDashboard(fixtureDashboard)');let html=f.element('recent-jobs').innerHTML;
+ assert.ok(html.indexOf('Z-999')<html.indexOf('A-001'));assert.equal(recent[0].id,'old');
+ f.dashboard.routines={...f.dashboard.routines,enabled:true,recent};f.call('renderDashboard(fixtureDashboard)');html=f.element('recent-jobs').innerHTML;
+ assert.ok(html.indexOf('Z-999')<html.indexOf('A-001'));
+});
+
+test('report columns are selectable, reordered and persisted per account without losing selection',()=>{
+ const f=fixture();f.context.reports={reports:[{id:'row-1',model:'Laptop',status_label:'Complete',stage:'complete',updated:'2026-10-09T14:00:00Z',column_data:{battery_health:80,memory_bytes:16*1024**3}}],total:1,page:1,pages:1};
+ f.call("renderReports(reports);selectedReports.set('row-1',reportRows[0])");
+ f.element('report-columns-panel').hidden=true;f.element('report-columns-toggle').click();assert.equal(f.element('report-columns-panel').hidden,false);
+ assert.match(f.element('report-column-options').innerHTML,/Battery health %.*Battery cycles.*Total disk size/);
+ const change=f.element('report-column-options').listeners.change;
+ change({target:{dataset:{reportColumnVisible:'battery_health'},checked:true}});
+ assert.match(f.element('reports-table').innerHTML,/data-report-sort="battery_health"/);assert.match(f.element('reports-table').innerHTML,/80%/);
+ assert.match(f.element('reports-table').innerHTML,/data-report-select="row-1"[^>]* checked/);
+ f.element('report-column-options').listeners.click({target:{closest:()=>({dataset:{reportColumnMove:'battery_health',direction:'-1'}})}});
+ assert.deepEqual(JSON.parse(f.persistent.get('repxe.report-columns.v1.admin-id')).filter(c=>c.visible).map(c=>c.id),['serial','routine','status','battery_health','processed']);
+ f.call("webSession.user.id='another';renderReports(reports)");assert.doesNotMatch(f.element('reports-table').innerHTML,/data-report-sort="battery_health"/);
+ f.call("webSession.user.id='admin-id';renderReports(reports)");assert.match(f.element('reports-table').innerHTML,/80%/);
+ f.element('report-columns-reset').click();assert.doesNotMatch(f.element('reports-table').innerHTML,/data-report-sort="battery_health"/);
+ assert.equal(f.call('selectedReports.size'),1);
+});
+
+test('report hardware cells preserve zero, above-design battery capacity and escaped observations',()=>{
+ const f=fixture();f.context.hardwareReport={id:'row',column_data:{battery_health:105,battery_cycles:0,ssd_wear:0,secure_boot:0,graphics:'<img src=x onerror=bad>',storage_bytes:null}};
+ for(const [key,expected] of [['battery_health','105%'],['battery_cycles','0'],['ssd_wear','0%'],['secure_boot','Disabled'],['storage_bytes','—']]){
+  f.context.key=key;assert.ok(f.call('reportTableCell(hardwareReport,reportTableColumns.find(c=>c[0]===key))').includes(expected));
+ }
+ assert.doesNotMatch(f.call("reportTableCell(hardwareReport,reportTableColumns.find(c=>c[0]==='graphics'))"),/<img/);
+ f.call("refresh=async()=>{};reportPage=3;sortReportsBy('battery_health')");assert.equal(f.call('reportPage'),1);assert.match(f.call('reportQuery()'),/sort=battery_health/);
+});
+
+test('report column controls exist in the delivered HTML and unknown saved columns are ignored',()=>{
+ const html=readFileSync(fileURLToPath(new URL('../repxe/static/index.html',import.meta.url)),'utf8');
+ for(const id of ['report-columns-toggle','report-columns-panel','report-column-options','report-columns-close','report-columns-reset'])assert.ok(html.includes('id="'+id+'"'));
+ const f=fixture();assert.equal(f.call("normalizeReportColumns([{id:'unknown',visible:true}]).filter(c=>c.visible).length"),4);
+ assert.equal(f.call("normalizeReportColumns([{id:'battery_health',visible:true},{id:'battery_health',visible:true}]).filter(c=>c.id==='battery_health').length"),1);
+});
+
 test('routine Windows image verification defaults on and persists explicit skip',()=>{
  const f=fixture();f.call("routineDraft={name:'Install',steps:[{id:'boot',kind:'boot'},{id:'windows',kind:'windows',method:'purge',target_policy:'manual'},{id:'finish',kind:'finish'}],connections:[]};routineSelectedStep='windows';renderRoutineStep()");
  assert.match(f.element('routine-step-settings').innerHTML,/data-routine-field="verify_image" checked/);

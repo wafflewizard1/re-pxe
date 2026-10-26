@@ -544,7 +544,7 @@ boot
             states={r['stage']:r['n'] for r in db.execute('SELECT stage,count(*) n FROM jobs GROUP BY stage')}
             completed_today=db.execute("SELECT count(*) FROM jobs WHERE stage='complete' AND updated>=?",(at.replace(hour=0,minute=0,second=0,microsecond=0).isoformat(),)).fetchone()[0]
             from . import job_reports
-            recent=[dict(r) for r in db.execute('SELECT '+job_reports.FIELDS+' '+job_reports.JOIN+' ORDER BY j.updated DESC LIMIT 8')]
+            recent=job_reports.list_reports(db,sort='processed',order='desc',page_size=8)['reports']
             routine_data=routine_dashboard(store(),view,search,db,at)
         network=None;path=store().root/'database/server-network.json'
         if path.is_file():
@@ -575,7 +575,7 @@ def routine_dashboard(store,view='current',search='',db=None,at=None):
         counts['active']=sum(v for k,v in counts.items() if k not in routines.TERMINAL)
         counts['attention']=db.execute(job_reports.report_source()+"SELECT count(*) FROM evidence WHERE source='routine' AND stage IN ('failed','needs-operator') AND run_id NOT IN (SELECT run_id FROM routine_removed)").fetchone()[0]
         counts['completed_today']=db.execute("SELECT count(*) FROM routine_runs WHERE stage='complete' AND id NOT IN (SELECT run_id FROM routine_removed) AND updated>=?",(at.replace(hour=0,minute=0,second=0,microsecond=0).isoformat(),)).fetchone()[0]
-        recent=job_reports.list_reports(db,page_size=8,include_removed=False)['reports']
+        recent=job_reports.list_reports(db,sort='processed',order='desc',page_size=8,include_removed=False)['reports']
         for item in recent:
             if item['run_id']:
                 run=routines.projection(db,db.execute('SELECT * FROM routine_runs WHERE id=?',(item['run_id'],)).fetchone())

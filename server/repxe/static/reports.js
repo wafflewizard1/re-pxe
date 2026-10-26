@@ -3,6 +3,57 @@ let reportPage=1,reportPages=1,reportRows=[],reportBusy=false,viewerClientId=nul
 function defaultReportFilters(){return {search:'',status:'all',start:'',end:'',sort:'processed',order:'desc',date_field:'activity',timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',page_size:'50'};}
 let reportFilters=defaultReportFilters();
 const selectedReports=new Map();
+const reportTableColumns=[
+ ['serial','Laptop / serial','text'],['routine','Routine','text'],['status','Outcome','text'],['processed','Processed / last activity','date'],
+ ['battery_health','Battery health %','percent','Lowest capacity health when multiple batteries are reported.'],
+ ['battery_cycles','Battery cycles','number','Highest reported battery cycle count.'],
+ ['storage_bytes','Total disk size','bytes','Combined capacity of all recorded drives, including removable drives.'],
+ ['drive_count','Drive count','number'],['memory_bytes','RAM','bytes'],['cpu','Processor','text'],
+ ['manufacturer','Manufacturer','text'],['model','Model','text'],['storage_models','Disk models','text'],['storage_serials','Disk serials','text'],
+ ['smart','SMART health','text','Partial means at least one recorded drive has no SMART verdict.'],
+ ['power_on_hours','Disk power-on hours','number','Highest reported value across recorded drives.'],
+ ['ssd_wear','SSD endurance used %','percent','Highest reported endurance usage; zero means no reported usage.'],
+ ['graphics','Graphics','text'],['asset_tag','Asset tag','text'],['firmware_version','Firmware version','text'],
+ ['secure_boot','Secure Boot','boolean'],['tpm','TPM','text'],['image','Windows image','text'],
+ ['target','Installation disk','text'],['mac','MAC','text'],['created','Job started','date']
+];
+let reportColumnsUser=null,reportColumnsSelection=[];
+const defaultReportColumns=()=>reportTableColumns.map(([id],i)=>({id,visible:i<4}));
+function normalizeReportColumns(value){
+ const remaining=new Set(reportTableColumns.map(([id])=>id)),result=[];
+ if(!Array.isArray(value))return defaultReportColumns();
+ for(const c of value)if(c&&remaining.delete(c.id))result.push({id:c.id,visible:c.visible===true});
+ for(const id of remaining)result.push({id,visible:false});
+ return result.some(c=>c.visible)?result:defaultReportColumns();
+}
+function reportTableLayout(){
+ const user=webSession?.user.id;
+ if(!user)return defaultReportColumns();
+ if(reportColumnsUser!==user){reportColumnsUser=user;reportColumnsSelection=normalizeReportColumns(readBrowserValue('repxe.report-columns.v1.'+user,null));}
+ return reportColumnsSelection;
+}
+function renderReportColumnsControls(){
+ const columns=reportTableLayout();
+ $('report-column-options').innerHTML=columns.map((c,i)=>{const [,label,,note]=reportTableColumns.find(([id])=>id===c.id);return '<div class="column-control"><label class="check"><input type="checkbox" data-report-column-visible="'+c.id+'"'+(c.visible?' checked':'')+'><span>'+esc(label)+(note?'<small class="muted">'+esc(note)+'</small>':'')+'</span></label><button type="button" class="secondary compact" data-report-column-move="'+c.id+'" data-direction="-1" aria-label="Move '+esc(label)+' left"'+(i===0?' disabled':'')+'>←</button><button type="button" class="secondary compact" data-report-column-move="'+c.id+'" data-direction="1" aria-label="Move '+esc(label)+' right"'+(i===columns.length-1?' disabled':'')+'>→</button></div>';}).join('');
+}
+function redrawReportColumns(){
+ writeBrowserValue('repxe.report-columns.v1.'+webSession.user.id,reportTableLayout());
+ renderReportColumnsControls();renderReports({reports:reportRows,total:reportTotal,page:reportPage,pages:reportPages});
+}
+function reportTableCell(r,column){
+ const [key,,type]=column;
+ if(key==='serial')return '<button class="client-name" data-report-view="'+esc(r.id)+'">'+esc(deviceLabel(r))+'</button><div class="muted">'+esc(r.model||'Model unavailable')+'</div>';
+ if(key==='routine')return esc(r.routine_name||'Earlier Windows job')+(r.routine_version?'<small>v'+r.routine_version+'</small>':'');
+ if(key==='status')return '<span class="badge '+(['failed','needs-operator'].includes(r.stage)?'warn':'')+'">'+esc(r.status_label)+'</span><small>'+esc(r.id.slice(0,8))+'</small>';
+ if(key==='processed')return esc(dateText(r.processed_at||r.updated))+'<small>'+(r.processed_at?'Processed':'Pending · last activity')+'</small>';
+ const value=key==='image'?r.image_name:key==='target'?r.target_identity:key==='created'?r.created:r.column_data?.[key]??r[key];
+ if(value===null||value===undefined||value==='')return '<span class="muted">—</span>';
+ if(type==='bytes')return Number.isFinite(value)?esc(bytes(value)):'—';
+ if(type==='percent'||type==='number')return Number.isFinite(value)?esc(value.toLocaleString(undefined,{maximumFractionDigits:2})+(type==='percent'?'%':'')):'—';
+ if(type==='boolean')return value===true||value===1?'Enabled':'Disabled';
+ if(type==='date')return esc(dateText(value));
+ return esc(value);
+}
 function reportQuery(){const q=new URLSearchParams({page:String(reportPage)});for(const [key,value] of Object.entries(reportFilters))if(value)q.set(key,value);return '?'+q;}
 function clientProgress(c){
  if(c.stage==='applying-image')return c.install_percent===null||c.install_percent===undefined?'<small>Waiting for installation progress</small>':'<progress max="100" value="'+c.install_percent+'" aria-label="Windows installation"></progress><small>'+c.install_percent+'% installed</small>';
@@ -43,7 +94,7 @@ function reportColumn(label,key){
  return '<th scope="col" aria-sort="'+(active?(descending?'descending':'ascending'):'none')+'"><button type="button" class="report-sort-heading" data-report-sort="'+key+'" title="Sort '+esc(label)+' '+(active&&!descending?'descending':'ascending')+'">'+esc(label)+'<span aria-hidden="true">'+(active?(descending?'↓':'↑'):'↕')+'</span></button></th>';
 }
 function sortReportsBy(key){
- if(!['serial','routine','status','processed'].includes(key))return;
+ if(!reportTableColumns.some(([id])=>id===key))return;
  reportFilters.order=reportFilters.sort===key&&reportFilters.order==='asc'?'desc':'asc';reportFilters.sort=key;reportPage=1;
  $('report-sort').value=key;$('report-order').value=reportFilters.order;refresh();
 }
@@ -57,18 +108,22 @@ function renderReports(data){
  $('report-count').textContent=data.total+' reports';$('report-filter-summary').textContent='Search matches recorded device and component values. Dates use '+(reportFilters.timezone||'UTC')+'.'+(reportTotal>200?' Narrow filters to export all matching reports (maximum 200).':'');$('report-page-label').textContent='Page '+reportPage+' of '+reportPages;
  $('report-prev').disabled=reportPage<=1;$('report-next').disabled=reportPage>=reportPages;
  updateReportFilterToggle();
- const headings='<th scope="col">Select</th>'+reportColumn('Laptop / serial','serial')+reportColumn('Routine','routine')+reportColumn('Outcome','status')+reportColumn('Processed / last activity','processed')+'<th scope="col">Report</th>';
+ const columns=reportTableLayout().filter(c=>c.visible).map(c=>reportTableColumns.find(([id])=>id===c.id));
+ if(document.activeElement!==$('report-sort')){$('report-sort').innerHTML=reportTableColumns.map(([id,label])=>'<option value="'+id+'">'+esc(label)+'</option>').join('');$('report-sort').value=reportFilters.sort;}
+ const headings='<th scope="col">Select</th>'+columns.map(([id,label])=>reportColumn(label,id)).join('')+'<th scope="col">Report</th>';
  $('reports-table').innerHTML=reportRows.length?'<table><thead><tr>'+headings+'</tr></thead><tbody>'+reportRows.map(r=>[
  '<input class="report-select" type="checkbox" data-report-select="'+esc(r.id)+'" aria-label="Select report for '+esc(deviceLabel(r))+'"'+(selectedReports.has(r.id)?' checked':'')+'>',
- '<button class="client-name" data-report-view="'+esc(r.id)+'">'+esc(deviceLabel(r))+'</button><div class="muted">'+esc(r.model||'Model unavailable')+'</div>',
- esc(r.routine_name||'Earlier Windows job')+(r.routine_version?'<small>v'+r.routine_version+'</small>':''),
- '<span class="badge '+(['failed','needs-operator'].includes(r.stage)?'warn':'')+'">'+esc(r.status_label)+'</span><small>'+esc(r.id.slice(0,8))+'</small>',
- esc(dateText(r.processed_at||r.updated))+'<small>'+(r.processed_at?'Processed':'Pending · last activity')+'</small>',
+ ...columns.map(column=>reportTableCell(r,column)),
  '<button class="secondary compact" data-report-view="'+esc(r.id)+'">View PDF</button> <a class="secondary compact" href="/api/job-reports/'+encodeURIComponent(r.id)+'/pdf?download=true" download>Download</a>'+(r.has_shred_report?' <button class="secondary compact" data-shred-report="'+esc(r.id)+'">Shred report</button>':'')
  ]).map(row=>'<tr>'+row.map(cell=>'<td>'+cell+'</td>').join('')+'</tr>').join('')+'</tbody></table>':empty('No matching reports');
  if(focusedSort)$('reports-table').querySelector('[data-report-sort="'+focusedSort+'"]')?.focus?.();
  updateReportSelection();
 }
+$('report-columns-toggle').addEventListener('click',()=>{const panel=$('report-columns-panel');panel.hidden=!panel.hidden;$('report-columns-toggle').setAttribute('aria-expanded',String(!panel.hidden));if(!panel.hidden)renderReportColumnsControls();});
+$('report-columns-close').addEventListener('click',()=>{$('report-columns-panel').hidden=true;$('report-columns-toggle').setAttribute('aria-expanded','false');$('report-columns-toggle').focus();});
+$('report-columns-reset').addEventListener('click',()=>{reportTableLayout();reportColumnsSelection=defaultReportColumns();redrawReportColumns();});
+$('report-column-options').addEventListener('change',e=>{const input=e.target,column=reportTableLayout().find(c=>c.id===input.dataset.reportColumnVisible);if(!column)return;column.visible=input.checked;if(!reportColumnsSelection.some(c=>c.visible)){column.visible=true;input.checked=true;message('Show at least one report column.',true);return;}redrawReportColumns();});
+$('report-column-options').addEventListener('click',e=>{const button=e.target.closest('[data-report-column-move]');if(!button)return;const columns=reportTableLayout(),from=columns.findIndex(c=>c.id===button.dataset.reportColumnMove),to=from+Number(button.dataset.direction);if(from<0||to<0||to>=columns.length)return;columns.splice(to,0,columns.splice(from,1)[0]);redrawReportColumns();});
 async function refreshReports(){const query=reportQuery();const [data]=await Promise.all([api('/job-reports'+query),typeof loadReportPreferences==='function'?loadReportPreferences():Promise.resolve()]);if(webSession&&tab==='reports'&&query===reportQuery())renderReports(data);}
 function updateReportSelection(){
  const visible=new Set(reportRows.map(r=>r.id)),hidden=[...selectedReports.keys()].filter(id=>!visible.has(id)).length;
@@ -136,7 +191,7 @@ async function exportReports(matching){
 $('report-download-selected').addEventListener('click',()=>exportReports(false));
 $('report-download-matching').addEventListener('click',()=>exportReports(true));
 
-function clearReportSession(){clearTimeout(reportSearchTimer);if(typeof clearReportPreferences==='function')clearReportPreferences();reportTotal=0;selectedReports.clear();reportRows=[];reportPage=1;reportBusy=false;closeReportViewer();$('reports-table').innerHTML='';$('report-viewer-summary').innerHTML='';}
+function clearReportSession(){clearTimeout(reportSearchTimer);if(typeof clearReportPreferences==='function')clearReportPreferences();reportColumnsUser=null;reportColumnsSelection=[];$('report-columns-panel').hidden=true;$('report-columns-toggle').setAttribute('aria-expanded','false');reportTotal=0;selectedReports.clear();reportRows=[];reportPage=1;reportBusy=false;closeReportViewer();$('reports-table').innerHTML='';$('report-viewer-summary').innerHTML='';}
 
 function renderStorageChart(storage){
  const valid=Number.isFinite(storage?.total)&&storage.total>0&&Number.isFinite(storage?.free);

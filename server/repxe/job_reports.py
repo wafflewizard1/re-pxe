@@ -22,6 +22,8 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from .activity import routine_stage_sql
 from .device_inventory import facts_for, serial_key
 from .report_settings import ReportSettings, valid_timezone
+from . import report_columns
+from .report_columns import Sort
 
 TERMINAL = {'complete', 'failed', 'cancelled'}
 MILESTONES = [('created','Job created'),('preflight','Preflight'),('disk-prepared','Disk prepared'),
@@ -66,7 +68,7 @@ FIELDS = '''j.id,''' + EFFECTIVE_STAGE + ''' stage,j.stage canonical_stage,j.cre
 
 def report_source():
     # One report per routine run, with old standalone Windows jobs retained.
-    legacy = 'SELECT '+FIELDS+" ,NULL routine_id,NULL routine_name,NULL routine_version,NULL run_id,j.id job_id,'windows' source,NULL certificate_id,COALESCE(i.inventory,json_extract(j.report,'$.native.hardware.specs'),'{}') search_inventory,'{}' search_pre_inventory,COALESCE(a.name,'')||' '||COALESCE(json_extract(c.selection,'$.profile.name'),'')||' '||COALESCE(json_extract(c.selection,'$.profile.windows_label'),'') search_image "+JOIN+" WHERE NOT EXISTS(SELECT 1 FROM routine_runs r WHERE r.job_id=j.id)"
+    legacy = 'SELECT '+FIELDS+" ,NULL routine_id,NULL routine_name,NULL routine_version,NULL run_id,j.id job_id,'windows' source,NULL certificate_id,COALESCE(json_extract(j.report,'$.native.hardware.specs'),i.inventory,'{}') search_inventory,'{}' search_pre_inventory,COALESCE(a.name,'')||' '||COALESCE(json_extract(c.selection,'$.profile.name'),'')||' '||COALESCE(json_extract(c.selection,'$.profile.windows_label'),'') search_image "+JOIN+" WHERE NOT EXISTS(SELECT 1 FROM routine_runs r WHERE r.job_id=j.id)"
     routine = """SELECT 'routine:'||r.id id,
         """+routine_stage_sql(erase_stale=True)+""" stage,
         r.stage canonical_stage,r.created,
@@ -80,7 +82,7 @@ def report_source():
         COALESCE(NULLIF(json_extract(i.inventory,'$.system.serial'),''),json_extract(r.inventory,'$.system_serial'),json_extract(j.report,'$.native.hardware.specs.system.serial'),'') system_serial,
         r.routine_id,json_extract(r.spec,'$.name') routine_name,r.version routine_version,r.id run_id,j.id job_id,'routine' source,
         CASE WHEN w.certificate_sha256 IS NOT NULL THEN w.id END certificate_id,
-        COALESCE(i.inventory,json_extract(j.report,'$.native.hardware.specs'),'{}') search_inventory,COALESCE(r.inventory,'{}') search_pre_inventory,COALESCE(a.name,'')||' '||COALESCE(json_extract(c.selection,'$.profile.name'),'')||' '||COALESCE(json_extract(c.selection,'$.profile.windows_label'),'') search_image
+        COALESCE(json_extract(j.report,'$.native.hardware.specs'),i.inventory,'{}') search_inventory,COALESCE(r.inventory,'{}') search_pre_inventory,COALESCE(a.name,'')||' '||COALESCE(json_extract(c.selection,'$.profile.name'),'')||' '||COALESCE(json_extract(c.selection,'$.profile.windows_label'),'') search_image
         FROM routine_runs r LEFT JOIN jobs j ON j.id=r.job_id LEFT JOIN clients c ON c.id=r.client_id
         LEFT JOIN client_inventory i ON i.client_id=c.id LEFT JOIN artifacts a ON a.id=j.image_id
         LEFT JOIN workflow_runs w ON w.id=r.workflow_id"""
@@ -115,12 +117,14 @@ def list_reports(db, search='', status='all', start=None, end=None, page=1, page
     outcome_order="lower(CASE stage "+' '.join("WHEN '"+stage+"' THEN '"+label.replace("'","''")+"'" for stage,label in LABELS.items())+" ELSE replace(stage,'-',' ') END)"
     ordering={'serial':"CASE WHEN COALESCE(system_serial,'')='' THEN 1 ELSE 0 END,lower(system_serial)",
               'processed':'julianday(updated)','created':'julianday(created)','model':'lower(COALESCE(model,device_model))','status':outcome_order,
-              'routine':"lower(COALESCE(NULLIF(routine_name,''),'Earlier Windows job'))"}[sort]
+              'routine':"lower(COALESCE(NULLIF(routine_name,''),'Earlier Windows job'))"}.get(sort)
+    if ordering is None: ordering=report_columns.ordering(sort)
     certificate_available='(certificate_id IS NOT NULL OR EXISTS (SELECT 1 FROM routine_erase_disks d JOIN workflow_runs w ON w.id=d.workflow_id WHERE d.run_id=evidence.run_id AND (w.certificate_sha256 IS NOT NULL OR EXISTS (SELECT 1 FROM workflow_phase_certificates p WHERE p.run_id=w.id))))'
-    rows=db.execute(prefix+'SELECT *, '+certificate_available+' has_shred_report FROM evidence'+where+' ORDER BY '+ordering+' '+order+(',updated DESC' if sort=='serial' else '')+',id '+order+' LIMIT ? OFFSET ?',[*params,page_size,(page-1)*page_size]).fetchall()
+    rows=db.execute(report_columns.source(prefix)+'SELECT *, '+certificate_available+' has_shred_report FROM report_columns evidence'+where+' ORDER BY '+ordering+' '+order+(',updated DESC' if sort=='serial' else '')+',id '+order+' LIMIT ? OFFSET ?',[*params,page_size,(page-1)*page_size]).fetchall()
     reports=[]
     for r in rows:
-        item={k:r[k] for k in r.keys() if k not in ('search_inventory','search_pre_inventory','search_image')};item['model']=item['model'] or item['device_model'] or 'Unidentified device'
+        item={k:r[k] for k in r.keys() if k not in ('search_inventory','search_pre_inventory','search_image') and not k.startswith('column_')};item['model']=item['model'] or item['device_model'] or 'Unidentified device'
+        item['column_data']={key:r['column_'+key] for key in report_columns.FIELDS}
         item['processed_at']=item['updated'] if item['canonical_stage'] in TERMINAL else None
         item['has_completion_report']=bool(item['has_completion_report']);item['has_shred_report']=bool(item['has_shred_report'])
         item['status_label']=display(item['stage']);reports.append(item)
@@ -426,7 +430,7 @@ class ReportFilters(BaseModel):
     status:Literal['all','complete','failed','cancelled','needs-operator','pending']='all'
     start:date|None=None
     end:date|None=None
-    sort:Literal['serial','processed','created','model','status','routine']='processed'
+    sort:Sort='processed'
     order:Literal['asc','desc']='desc'
     date_field:Literal['activity','started','processed']='activity'
     timezone:str=Field(default='UTC',max_length=64)
@@ -463,7 +467,7 @@ def install(app,store,Role,allow):
     @app.get('/api/job-reports')
     def reports(role:Role,search:str=Query(default='',max_length=200),status:Literal['all','complete','failed','cancelled','needs-operator','pending']='all',
                 start:date|None=None,end:date|None=None,page:int=Query(default=1,ge=1),page_size:int=Query(default=50,ge=1,le=200),
-                sort:Literal['serial','processed','created','model','status','routine']='processed',order:Literal['asc','desc']='desc',
+                sort:Sort='processed',order:Literal['asc','desc']='desc',
                 date_field:Literal['activity','started','processed']='activity',timezone:str=Query(default='UTC',max_length=64)):
         allow(role)
         if start and end and start>end:raise HTTPException(422,'Start date must be before end date')
