@@ -661,7 +661,8 @@ def remove_run(db,row,body):
     db.execute('INSERT INTO routine_removed VALUES(?,?)',(row['id'],now()))
     db.execute('INSERT INTO routine_events(run_id,step,stage,detail,created) VALUES(?,?,?,?,?)',(row['id'],row['step'],'removed','Operator removed job from portal; reports retained',now()))
     if row['client_id']:
-        db.execute('UPDATE clients SET deleted_at=?,token_hash=NULL,expires=?,ticket_expires=? WHERE id=?',(now(),now(),now(),row['client_id']))
+        db.execute('INSERT OR IGNORE INTO client_retirements VALUES(?,?)',(row['client_id'],now()))
+        db.execute('UPDATE clients SET token_hash=NULL,expires=?,ticket_expires=? WHERE id=?',(now(),now(),row['client_id']))
 
 
 def cancel(db, row, revoke_session=True):

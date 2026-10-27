@@ -143,3 +143,23 @@ def test_signed_entry_requires_routines_and_reports_missing_media(lab):
     assert not c.get('/api/dashboard', headers=auth()).json()['windows_secure_boot']['available']
     c.put('/api/routine-settings', headers=auth(), json={'enabled': True})
     assert c.get('/pxe/boot.ipxe', params={'mac': MAC, 'windows_only': 1}).status_code == 503
+
+
+def test_stopped_windows_test_run_can_be_removed_without_deleting_its_report(lab):
+    c, root, profile = lab
+    install_media(root)
+    make(c, profile)
+    signed_media(root)
+    assert c.get(menu_start(c)).status_code == 200
+    script = c.get('/pxe/managed.ipxe', params={'mac': MAC}).text
+    ticket = re.search('/pxe/config/([A-Za-z0-9_-]+)', script)[1]
+    native, session = managed_enroll(c, ticket)
+    run = c.get('/api/routines', headers=auth()).json()['runs'][0]
+    assert c.post('/api/clients/'+session['clientId']+'/cancel', headers=auth(), json={'expected_job_id': None}).status_code == 200
+    response = c.post('/api/routine-runs/'+run['id']+'/action', headers=auth(), json={'action': 'remove', 'expected_step': run['step']})
+    assert response.status_code == 200, response.text
+    with c.app.state.store.db() as db:
+        assert db.execute('SELECT 1 FROM client_retirements WHERE client_id=?', (session['clientId'],)).fetchone()
+        assert db.execute('SELECT token_hash FROM clients WHERE id=?', (session['clientId'],)).fetchone()[0] is None
+    assert c.get('/api/job-reports/routine:'+run['id'], headers=auth()).status_code == 200
+    assert c.post('/api/pxe/heartbeat', headers=native, json={'stage': 'waiting-for-input'}).status_code == 401
