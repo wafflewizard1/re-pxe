@@ -60,8 +60,9 @@ def enroll_request(body):
         'targets':[ {k:d[k] for k in ('identity','size_bytes','model')} for d in body['inventory']['disks'] if d['transport']!='usb']}
 
 
-def test_batch_same_session_progress_and_manual_portal_choice(lab):
-    c,p,body,intake=prepare(lab)
+@pytest.mark.parametrize('mode', ['manual', 'auto-unless-multiple'])
+def test_batch_same_session_progress_and_manual_portal_choice(lab, mode):
+    c,p,body,intake=prepare(lab,mode=mode)
     state=c.get('/api/intake/status',headers=intake).json();assert state['erase_ready']
     first,h=erase_one(c,body,intake)
     state=c.get('/api/erase/status',headers=h).json();assert not state['reboot_for_routine']

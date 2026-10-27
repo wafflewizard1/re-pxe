@@ -738,6 +738,22 @@ test('report column controls exist in the delivered HTML and unknown saved colum
  assert.equal(f.call("normalizeReportColumns([{id:'battery_health',visible:true},{id:'battery_health',visible:true}]).filter(c=>c.id==='battery_health').length"),1);
 });
 
+test('new Windows steps default to auto unless multiple drives and retain older choices',()=>{
+ const f=fixture();f.element('routine-new').click();
+ assert.equal(f.call('routineDraft.steps[1].target_policy'),'auto-unless-multiple');
+ assert.match(f.element('routine-step-settings').innerHTML,/<option value="auto-unless-multiple" selected>Auto unless multiple drives<\/option>/);
+ for(const mode of ['first-disk','manual','single-internal','named-disk']){
+  f.context.mode=mode;const html=f.call("routineDiskFields({kind:'windows',target_policy:mode})");
+  assert.ok(html.includes('<option value="'+mode+'" selected>'));
+ }
+ assert.doesNotMatch(f.call("routineDiskFields({kind:'erase',target_policy:'all-internal'})"),/auto-unless-multiple/);
+ const change=f.element('routine-step-settings').listeners.change;
+ change({target:{dataset:{routineField:'target_policy'},type:'select-one',value:'manual'}});
+ change({target:{dataset:{routineField:'target_policy'},type:'select-one',value:'auto-unless-multiple'}});
+ assert.equal(f.call('routineDraft.steps[1].target_policy'),'auto-unless-multiple');
+ assert.equal(f.call('routineDirty'),true);
+});
+
 test('routine Windows image verification defaults on and persists explicit skip',()=>{
  const f=fixture();f.call("routineDraft={name:'Install',steps:[{id:'boot',kind:'boot'},{id:'windows',kind:'windows',method:'purge',target_policy:'manual'},{id:'finish',kind:'finish'}],connections:[]};routineSelectedStep='windows';renderRoutineStep()");
  assert.match(f.element('routine-step-settings').innerHTML,/data-routine-field="verify_image" checked/);

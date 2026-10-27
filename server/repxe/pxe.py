@@ -367,8 +367,8 @@ boot
                 step=json.loads(routine['spec'])['steps'][routine['step']]
                 if step.get('finish_options') is not None and client_version<(0,13,0):raise HTTPException(409,'Routine Finish options require WinPE 0.13.0 or newer')
                 if not step.get('verify_image',True) and client_version<(0,12,16):raise HTTPException(409,'Skipping Windows image verification requires WinPE 0.12.16 or newer')
-                manual=step['target_policy']=='manual'
-                policy.update(automaticDiskSelection=not manual,startDelaySeconds=5 if step['target_policy'] in ('first-disk','manual') else 0,targetIdentity=target,targetDiskPolicy='format-selected-disk',manualDiskSelection=manual,verifyImage=step.get('verify_image',True))
+                manual=step['target_policy']=='manual' or step['target_policy']=='auto-unless-multiple' and not target
+                policy.update(automaticDiskSelection=not manual,startDelaySeconds=5 if step['target_policy'] in ('first-disk','manual','auto-unless-multiple') else 0,targetIdentity=target,targetDiskPolicy='format-selected-disk',manualDiskSelection=manual,verifyImage=step.get('verify_image',True))
                 if step.get('finish_options') is not None:policy['finishOptions']=step['finish_options']
             if spec.managed_selection:
                 options=routines.windows_choices(db,{**dict(row),'manufacturer':spec.manufacturer,'model':spec.model},target,profile_artifacts) if routine else boot_options_for(db,spec.manufacturer,spec.model,target)

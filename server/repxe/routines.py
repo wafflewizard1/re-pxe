@@ -77,7 +77,7 @@ class Step(workflows.EraseOptions):
     finish_options: FinishOptions | None = None
     start_delay_seconds: int = Field(default=5, strict=True, ge=0, le=300)
     allow_usb: bool = Field(default=False, strict=True)
-    target_policy: Literal['single-internal', 'all-internal', 'first-disk', 'manual', 'named-disk'] = 'single-internal'
+    target_policy: Literal['single-internal', 'all-internal', 'first-disk', 'manual', 'auto-unless-multiple', 'named-disk'] = 'single-internal'
     target_identity: str | None = Field(default=None, pattern=r'^serial:[^\x00-\x1f]{1,293}$')
     note: str = Field(default='', max_length=500)
     ipxe_path: str = Field(default='', max_length=800)
@@ -248,7 +248,7 @@ def validate_runtime(store, db, spec, profile_artifacts):
     for s in spec['steps']:
         if s['kind'] in ('erase','windows') and s['target_policy']=='named-disk' and not s['target_identity']:raise HTTPException(409,'Specify the exact disk serial')
         if s['kind'] == 'erase':
-            if s['target_policy'] in ('first-disk','manual'): raise HTTPException(409,'Erasure requires all internal drives, one internal drive or an exact serial')
+            if s['target_policy'] in ('first-disk','manual','auto-unless-multiple'): raise HTTPException(409,'Erasure requires all internal drives, one internal drive or an exact serial')
             if s['target_policy']=='all-internal' and workflows.media(store)['agent_version'] not in ('re-pxe-shredos-4','re-pxe-shredos-5','re-pxe-shredos-6','re-pxe-shredos-7','re-pxe-shredos-8','re-pxe-shredos-9','re-pxe-shredos-10',workflows.MEDIA_MARKER): raise HTTPException(409,'Update ShredOS before publishing multi-drive erasure')
             try: erase_policy.settings(s)
             except ValueError as exc: raise HTTPException(409, str(exc)) from None
@@ -572,6 +572,7 @@ def enforce_enroll(db, client_id, targets, managed, client_version):
     if not run: return None
     if run['stage'] != 'windows-boot' or not managed: raise HTTPException(409, 'Routine requires managed Windows media and an unstarted Windows step')
     step = json.loads(run['spec'])['steps'][run['step']]
+    flexible = step['target_policy'] in ('first-disk', 'manual', 'auto-unless-multiple')
     candidates = list(targets)
     erased=db.execute('SELECT w.* FROM routine_erase_disks d JOIN workflow_runs w ON w.id=d.workflow_id WHERE d.run_id=? AND d.step_index=(SELECT step_index FROM routine_erase_disks WHERE workflow_id=?) ORDER BY d.ordinal',(run['id'],run['workflow_id'])).fetchall()
     if not erased and run['workflow_id']:
@@ -582,13 +583,15 @@ def enforce_enroll(db, client_id, targets, managed, client_version):
         candidates = [t for t in targets if any(t.identity == d['target'] and t.size_bytes == d['size'] for d in erased)]
         if len(candidates) != len(erased): raise HTTPException(409, 'Routine disk identity or capacity changed; collect native NVMe controller serials')
     if step['target_policy'] == 'named-disk': candidates = [t for t in candidates if t.identity == step['target_identity']]
-    elif step['target_policy'] not in ('first-disk', 'manual') and run['target']:
+    elif not flexible and run['target']:
         candidates = [t for t in candidates if t.identity == run['target'] and t.size_bytes == run['size']]
-    if not candidates or step['target_policy'] not in ('first-disk', 'manual') and len(candidates) != 1:
+    if not candidates or not flexible and len(candidates) != 1:
         raise HTTPException(409, 'Routine needs one eligible disk or a named disk serial')
-    if step['target_policy'] in ('first-disk', 'manual') and client_version < (0,12,11):
+    if flexible and client_version < (0,12,11):
         raise HTTPException(409, 'Routine disk selection requires WinPE 0.12.11 or newer')
-    target = None if step['target_policy'] == 'manual' else candidates[0]
+    # Count all eligible Windows targets, even if an earlier erase step bound only one.
+    manual = step['target_policy'] == 'manual' or step['target_policy'] == 'auto-unless-multiple' and len(targets) > 1
+    target = None if manual else candidates[0]
     if target and target.identity!=targets[0].identity and client_version < (0,12,8): raise HTTPException(409,'This WinPE release selects its first disk; update the target-selection media')
     db.execute('UPDATE routine_runs SET target=?,size=? WHERE id=?', (target.identity if target else None,target.size_bytes if target else None,run['id']))
     return db.execute('SELECT * FROM routine_runs WHERE id=?',(run['id'],)).fetchone()

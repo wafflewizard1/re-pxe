@@ -138,6 +138,16 @@ provisioned state file has no `windowsKernelBinding` field yet.
 
 ## Prepare the installation image and routine
 
+In a routine's Windows step, **Auto unless multiple drives** automatically selects
+the sole eligible Windows installation drive and starts the existing five-second
+countdown. When more than one eligible drive is detected, installation waits for
+the technician to select a drive on the PC or in the portal. Removable, read-only
+and unidentified drives excluded by WinPE do not count. Earlier erasure bindings
+still restrict which drive can be selected. No eligible drive stops installation.
+This is the default for new Windows steps; existing published routines retain
+their policy until edited and republished. It uses the existing WinPE 0.12.11+
+selection protocol, so current clients do not need new media.
+
 
 Upload your generalized AMD64 Windows image in the portal, select its image index,
 review its validation and publish it. Create an enabled Windows preset, then use
