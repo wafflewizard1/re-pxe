@@ -14,7 +14,7 @@ from typing import Literal
 from fastapi import HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from . import workflows, file_workspace, driver_management, client_management, erase_policy
+from . import workflows, file_workspace, driver_management, client_management, erase_policy, windows_secure_boot
 
 TERMINAL = ('complete', 'failed', 'cancelled')
 STEP_LABELS = {'boot':'Boot','inventory':'Inventory','erase':'ShredOS','windows':'Windows install','checkpoint':'Technician checkpoint','ipxe':'Custom iPXE','finish':'Finish'}
@@ -194,6 +194,7 @@ def initialize(store):
         db.executescript(DDL)
         run_columns={r['name'] for r in db.execute('PRAGMA table_info(routine_runs)')}
         if 'failure_kind' not in run_columns:db.execute("ALTER TABLE routine_runs ADD COLUMN failure_kind TEXT NOT NULL DEFAULT ''")
+        if 'windows_only' not in run_columns:db.execute('ALTER TABLE routine_runs ADD COLUMN windows_only INTEGER NOT NULL DEFAULT 0')
         disk_columns={r['name'] for r in db.execute('PRAGMA table_info(routine_erase_disks)')}
         if 'step_index' not in disk_columns:
             db.execute('ALTER TABLE routine_erase_disks ADD COLUMN step_index INTEGER NOT NULL DEFAULT 0')
@@ -203,6 +204,7 @@ def initialize(store):
         columns={r['name'] for r in db.execute('PRAGMA table_info(routine_tickets)')}
         for name in ('default_id','default_version'):
             if name not in columns:db.execute('ALTER TABLE routine_tickets ADD COLUMN '+name+' '+('INTEGER' if name=='default_version' else 'TEXT'))
+        if 'windows_only' not in columns:db.execute('ALTER TABLE routine_tickets ADD COLUMN windows_only INTEGER NOT NULL DEFAULT 0')
         db.execute('CREATE TABLE IF NOT EXISTS routine_step_tickets(hash TEXT PRIMARY KEY,run_id TEXT NOT NULL,step INTEGER NOT NULL,expires TEXT NOT NULL)')
     p = store.root / 'config/routines-menu.json'
     if not p.exists():
@@ -693,21 +695,29 @@ def menu_spec(store):
     return value, text['revision']
 
 
-def menu_script(store, mac, address, alternatives=False, idle=False, preview=False):
+def menu_script(store, mac, address, alternatives=False, idle=False, preview=False, windows_only=False):
+    if windows_only:windows_secure_boot.load(store.root)
     menu,_ = menu_spec(store); at = now(); ticket = secrets.token_urlsafe(48)
     with store.db() as db:
         chosen = default_for(db, mac)
+        if windows_only and chosen and not windows_secure_boot.supported(json.loads(chosen['spec'])):chosen=None
         if not preview:
             db.execute('DELETE FROM routine_tickets WHERE expires<?',(at,))
             if db.execute('SELECT count(*) FROM routine_tickets').fetchone()[0] >= 1024: raise HTTPException(429,'Too many pending routine menus')
-            db.execute('INSERT INTO routine_tickets(hash,mac,expires,run_id,default_id,default_version) VALUES(?,?,?,NULL,?,?)',(digest(ticket),mac,(datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat(),chosen['routine_id'] if chosen else None,chosen['version'] if chosen else None))
+            db.execute('INSERT INTO routine_tickets(hash,mac,expires,run_id,default_id,default_version,windows_only) VALUES(?,?,?,NULL,?,?,?)',(digest(ticket),mac,(datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat(),chosen['routine_id'] if chosen else None,chosen['version'] if chosen else None,int(windows_only)))
         else:ticket='preview-only-not-a-boot-credential'
         records = db.execute('''SELECT v.* FROM routines r JOIN routine_versions v ON v.routine_id=r.id AND v.version=r.published_version ORDER BY r.created,r.id LIMIT 100''').fetchall()
+    if windows_only:
+        records=[r for r in records if windows_secure_boot.supported(json.loads(r['spec']))]
+        menu=menu.model_copy(update={'graphics':False,'show_banner':False})
+        idle=True  # Signed upstream binaries do not include our empty-input countdown patch.
+    scope='&windows_only=1' if windows_only else ''
     base = f'http://{address}:8089/pxe/routines'
     from .boot_appearance import commands, saved_appearance
     from .boot_background import read as read_background
     custom_background = read_background(store) is not None
     lines = ['#!ipxe', *commands(menu, address,custom_background=custom_background), *saved_appearance(store), 'menu '+menu.title]
+    if windows_only:lines.extend(['item --gap Windows-only Secure Boot candidate','item --gap Erasure and custom boot routines are unavailable on this entry.'])
     if menu.show_banner and not custom_background:
         lines.extend(['item --gap   [ re-pxe ]   PROVISION / ERASE / DELIVER', 'item --gap ========================================'])
     choices = []
@@ -723,7 +733,7 @@ def menu_script(store, mac, address, alternatives=False, idle=False, preview=Fal
             choices.append(('assigned',f'{base}/start.ipxe?ticket={ticket}&assigned=1'))
         else: lines.append('item --gap No assigned or default routine')
         lines.append('item other '+menu.other_label)
-        choices.append(('other', f'{base}/menu.ipxe?mac={mac}&alternatives=1'))
+        choices.append(('other', f'{base}/menu.ipxe?mac={mac}&alternatives=1'+scope))
         lines.append('item refresh Refresh menu')
         if menu.next_boot: lines.append('item next Next boot option')
         if menu.shutdown: lines.append('item shutdown Shut down')
@@ -742,7 +752,11 @@ def menu_script(store, mac, address, alternatives=False, idle=False, preview=Fal
                   ':unavailable','echo This command is unavailable on this firmware.','prompt Press any key to return',
                   ':idle',f'chain --replace --autofree {base}/menu.ipxe?mac={mac}&idle=1 || goto fail',
                   ':fail','echo Cannot contact re-pxe. No routine was started.','prompt Press any key to exit','exit'])
-    return '\n'.join(lines)+'\n'
+    script='\n'.join(lines)+'\n'
+    if windows_only:
+        for suffix in ('', '&idle=1'):
+            script=script.replace(f'{base}/menu.ipxe?mac={mac}{suffix} ||',f'{base}/menu.ipxe?mac={mac}{suffix}{scope} ||')
+    return script
 
 
 def install(app, store, Role, allow, profile_artifacts):
@@ -889,14 +903,14 @@ def install(app, store, Role, allow, profile_artifacts):
         return result
 
     @app.get('/pxe/routines/menu.ipxe')
-    def boot_menu(mac: str=Query(pattern=MAC_PATTERN),alternatives: bool=False,idle: bool=False):
+    def boot_menu(mac: str=Query(pattern=MAC_PATTERN),alternatives: bool=False,idle: bool=False,windows_only: bool=False):
         mac=mac.lower()
         with store().db() as db:
             if not enabled(db):raise HTTPException(409,'Routine boot is disabled')
             sync(db);row=latest(db,mac)
             if client_management.blocking_job(db,mac) or row and row['stage'] not in TERMINAL:
-                return script_response(f'#!ipxe\nchain --replace --autofree http://{server_address()}:8089/pxe/managed.ipxe?mac={mac}\n')
-        return script_response(menu_script(store(),mac,server_address(),alternatives,idle))
+                return script_response(f'#!ipxe\nchain --replace --autofree http://{server_address()}:8089/pxe/managed.ipxe?mac={mac}'+('&windows_only=1' if windows_only or row and row['windows_only'] else '')+'\n')
+        return script_response(menu_script(store(),mac,server_address(),alternatives,idle,windows_only=windows_only))
 
     @app.get('/pxe/routines/start.ipxe')
     def start(ticket: str=Query(pattern=r'^[A-Za-z0-9_-]{32,128}$'),assigned: bool=False,
@@ -905,6 +919,7 @@ def install(app, store, Role, allow, profile_artifacts):
             if not enabled(db):raise HTTPException(409,'Routine boot is disabled')
             t=db.execute('SELECT * FROM routine_tickets WHERE hash=?',(digest(ticket),)).fetchone()
             if not t or t['expires']<=now():raise HTTPException(401,'Routine menu expired; refresh the menu')
+            if t['windows_only']:windows_secure_boot.load(store().root)
             sync(db);row=latest(db,t['mac'])
             if t['run_id']:
                 if not row or row['id']!=t['run_id'] or row['stage'] in TERMINAL:raise HTTPException(409,'This menu choice has already been used')
@@ -920,15 +935,17 @@ def install(app, store, Role, allow, profile_artifacts):
                     selected=published(db,routine)
                     if selected['version']!=version:raise HTTPException(409,'Routine changed; refresh the menu')
                 else:raise HTTPException(422,'Select assigned or a published routine')
-                spec=json.loads(selected['spec']);validate_runtime(store(),db,spec,profile_artifacts)
+                spec=json.loads(selected['spec'])
+                if t['windows_only']:windows_secure_boot.require_supported(spec)
+                validate_runtime(store(),db,spec,profile_artifacts)
                 uid=str(uuid.uuid4());at=now()
-                db.execute('''INSERT INTO routine_runs(id,routine_id,version,spec,mac,step,stage,created,updated)
-                              VALUES(?,?,?,?,?,0,'queued',?,?)''',(uid,selected['routine_id'],selected['version'],selected['spec'],t['mac'],at,at))
+                db.execute('''INSERT INTO routine_runs(id,routine_id,version,spec,mac,step,stage,created,updated,windows_only)
+                              VALUES(?,?,?,?,?,0,'queued',?,?,?)''',(uid,selected['routine_id'],selected['version'],selected['spec'],t['mac'],at,at,t['windows_only']))
                 row=latest(db,t['mac']);advance(db,row)
                 db.execute('UPDATE routine_tickets SET run_id=? WHERE hash=?',(uid,digest(ticket)))
                 db.execute('UPDATE clients SET ticket_expires=?,expires=? WHERE mac=? AND job_id IS NULL',(at,at,t['mac']))
             mac=t['mac']
-        return script_response(f'#!ipxe\nchain --replace --autofree http://{server_address()}:8089/pxe/managed.ipxe?mac={mac}\n')
+        return script_response(f'#!ipxe\nchain --replace --autofree http://{server_address()}:8089/pxe/managed.ipxe?mac={mac}'+('&windows_only=1' if t['windows_only'] else '')+'\n')
 
     @app.get('/pxe/routines/continue.ipxe')
     def continue_step(ticket: str=Query(pattern=r'^[A-Za-z0-9_-]{32,128}$'), outcome: Literal['success', 'failure']='success'):

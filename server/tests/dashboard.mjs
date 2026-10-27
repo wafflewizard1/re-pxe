@@ -754,6 +754,18 @@ test('new Windows steps default to auto unless multiple drives and retain older 
  assert.equal(f.call('routineDirty'),true);
 });
 
+test('Windows Secure Boot settings show candidate scope and the separate DHCP path',()=>{
+ const f=fixture();f.context.signedEntry={available:true,validation:'Candidate — hardware testing required',dhcp_filename:'pxe/secureboot/test/snponly-shim.efi'};
+ const html=f.call('secureBootEntryHtml(signedEntry)');
+ assert.match(html,/Windows-only Secure Boot/);assert.match(html,/hardware testing required/);
+ assert.match(html,/pxe\/secureboot\/test\/snponly-shim.efi/);assert.match(html,/does not change your DHCP/);
+ assert.doesNotMatch(html,/Validated/);
+ f.context.signedEntry.dhcp_filename='<img src=x>';assert.doesNotMatch(f.call('secureBootEntryHtml(signedEntry)'),/<img/);
+ assert.match(f.call('secureBootEntryHtml(undefined)'),/No signed candidate/);
+ const page=readFileSync(fileURLToPath(new URL('../repxe/static/index.html',import.meta.url)),'utf8');
+ assert.match(page,/id="secure-boot-information"/);
+});
+
 test('routine Windows image verification defaults on and persists explicit skip',()=>{
  const f=fixture();f.call("routineDraft={name:'Install',steps:[{id:'boot',kind:'boot'},{id:'windows',kind:'windows',method:'purge',target_policy:'manual'},{id:'finish',kind:'finish'}],connections:[]};routineSelectedStep='windows';renderRoutineStep()");
  assert.match(f.element('routine-step-settings').innerHTML,/data-routine-field="verify_image" checked/);
