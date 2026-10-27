@@ -58,8 +58,9 @@ the menu offers the supported alternatives. An already active erasure/custom
 routine produces an explanatory hold screen without authorizing any new work.
 
 The server binds the Windows-only restriction to both the menu ticket and the
-resulting run. Removing a query parameter, forging another routine choice or
-refreshing the menu cannot turn that signed session into an erasure/custom boot.
+resulting run. A different routine choice on that ticket is rejected; a started
+run retains its restriction even when subsequent requests omit the query flag.
+The generated menu's refresh and back links preserve the flag.
 Normal boot menus retain their existing behavior. The signed menu uses the
 firmware text console and explicit selection: the production iPXE release does
 not contain re-pxe's custom empty-input countdown patch. WinPE's existing drive
@@ -72,6 +73,19 @@ observation. Existing trusted-LAN boot transport and pinned HTTPS client trust
 continue to apply.
 
 ## Acceptance testing
+
+The signed entry has booted into re-pxe WinPE in a disposable QEMU/KVM Q35 VM
+using Debian 13's EDK II 2025.02 firmware and its stock Microsoft-trusting variable
+store. WinPE inventory reported `secure_boot: true`. Windows 11 Pro build 26300
+then installed onto a disposable 64 GiB qcow2 disk, started in Audit mode and
+opened the re-pxe driver console. `Confirm-SecureBootUEFI` in the installed OS
+returned `True`. The initial lab boot order was network-only; the installed-disk
+check used disk-first boot with the same firmware variable store. No custom key
+enrollment was performed. Physical hardware and final OOBE remain acceptance
+checks, rather than results inferred from this VM test. The older Debian 12 virtual
+PXE implementation instead reported a padded 4 MiB size for the next EFI image,
+which shim rejected with `Verification failed: (0x2) Invalid Parameter`. This
+demonstrates why signature checks alone cannot certify a device's PXE firmware.
 
 Firmware must trust the appropriate Microsoft UEFI authorities. Devices configured
 to trust only Microsoft Windows loaders may need their vendor's third-party UEFI
