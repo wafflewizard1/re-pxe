@@ -1,5 +1,9 @@
 # Windows client and WinPE
 
+An opt-in [Windows-only Secure Boot candidate](windows-secure-boot.md) is available
+for testing with signed iPXE/shim and managed WinPE. It uses a separate DHCP boot
+entry and does not replace the regular ShredOS-capable path.
+
 Windows routines can publish without a selected or validated PXE media release.
 Select your published WIM in an enabled Windows preset and publish the routine.
 If no PXE bundle is selected, the server attempts to boot that uploaded WIM
