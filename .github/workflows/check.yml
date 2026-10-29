@@ -18,6 +18,7 @@ jobs:
       - run: python server/prepare_builtin.py
       - run: PYTHONPATH=server python -m pytest -q server/tests
       - run: node server/tests/dashboard.mjs
+      - run: python tools/check_boot_proxy.py
       - run: cmake -S client -B .local/client-check -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build .local/client-check && ctest --test-dir .local/client-check --output-on-failure
       - run: docker build -t re-pxe-check server
       - run: python tools/build_client.py
