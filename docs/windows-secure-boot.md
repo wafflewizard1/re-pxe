@@ -61,10 +61,20 @@ The server binds the Windows-only restriction to both the menu ticket and the
 resulting run. A different routine choice on that ticket is rejected; a started
 run retains its restriction even when subsequent requests omit the query flag.
 The generated menu's refresh and back links preserve the flag.
-Normal boot menus retain their existing behavior. The signed menu uses the
-firmware text console and explicit selection: the production iPXE release does
-not contain re-pxe's custom empty-input countdown patch. WinPE's existing drive
-selection and installation countdown remain available.
+Both entries use the saved menu theme, background, text size and colours. If the
+firmware cannot provide a graphical console, the menu falls back to text. The
+signed menu also uses the Boot step's start delay (five seconds by default) when
+a supported routine is assigned or selected as the server default. A keypress
+pauses the countdown; Escape and the alternatives/back menu wait for selection.
+A zero-second delay disables automatic start, and an unsupported default never
+starts on the Windows-only entry. WinPE's existing drive selection and installation
+countdown remain available.
+
+These features use the upstream iPXE `console` and `choose` commands without
+changing any signed executable. The production loader lacks the regular entry's
+custom empty-input fix: firmware that reports phantom key events can still pause
+the timer. Include unattended countdown and keyboard pause checks in physical
+acceptance testing.
 
 The WinPE re-pxe application and Windows-stage driver console are unchanged.
 Secure Boot validates the EFI/kernel chain; the menu flag is a routing restriction,

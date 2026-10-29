@@ -37,7 +37,7 @@ def menu_start(c):
     response = c.get('/pxe/boot.ipxe', params={'mac': MAC, 'windows_only': 1})
     assert response.status_code == 200, response.text
     assert 'Windows-only Secure Boot candidate' in response.text
-    assert '--timeout' not in response.text  # Upstream signed build has no custom countdown patch.
+    assert 'choose --timeout 5000 --default assigned --retimeout 0' in response.text
     url = re.search(r'chain --replace --autofree (http[^\n]*start.ipxe[^\n]*) \|\|', response.text)[1]
     return url.replace('http://127.0.0.1:8089', '')
 
@@ -113,6 +113,53 @@ def test_every_signed_menu_return_preserves_scope_and_custom_menus_are_bypassed(
         if 'chain ' in line and '/menu.ipxe?' in line:
             assert 'windows_only=1' in line
     assert '/custom/' not in response.text
+
+
+def test_signed_menu_uses_saved_theme_background_and_pausable_countdown(lab):
+    c, root, profile = lab
+    install_media(root)
+    make(c, profile)
+    signed_media(root)
+    menu = c.get('/api/routine-menu', headers=auth()).json()
+    spec = {**menu['spec'], 'theme': 'amber', 'text_size': 'large', 'title': 'Workshop boot'}
+    saved = c.put('/api/routine-menu', headers=auth(),
+                  json={'spec': spec, 'expected_revision': menu['revision']})
+    assert saved.status_code == 200, saved.text
+    signed = c.get('/pxe/boot.ipxe', params={'mac': MAC, 'windows_only': 1}).text
+    regular = c.get('/pxe/boot.ipxe', params={'mac': MAC}).text
+    for command in ('console --x 800 --y 600', '--picture http://127.0.0.1:8089/pxe/routines/background.png',
+                    'colour --basic 3 --rgb 0xf0be55 6', 'menu Workshop boot',
+                    'Automatic start in 5 seconds. Any key pauses.',
+                    'choose --timeout 5000 --default assigned --retimeout 0'):
+        assert command in signed and command in regular
+    assert '|| console || echo Using firmware text console' in signed
+    # Leaving the countdown, viewing alternatives or returning with Escape must
+    # keep the Windows-only scope and wait for an explicit selection.
+    for extra in ({'idle': 1}, {'alternatives': 1}):
+        paused = c.get('/pxe/routines/menu.ipxe', params={'mac': MAC, 'windows_only': 1, **extra}).text
+        assert '--timeout' not in paused and 'windows_only=1' in paused
+    assert c.get('/pxe/routines/background.png').status_code == 200
+
+
+def test_signed_menu_respects_disabled_timer_and_unsupported_default(lab):
+    c, root, profile = lab
+    install_media(root)
+    uid = make(c, profile)
+    signed_media(root)
+    draft = c.get('/api/routines', headers=auth()).json()['routines'][0]
+    spec = draft['draft']
+    spec['steps'][0]['start_delay_seconds'] = 0
+    assert c.put('/api/routines/' + uid, headers=auth(),
+                 json={'spec': spec, 'expected_generation': draft['generation']}).status_code == 200
+    assert c.post('/api/routines/' + uid + '/publish', headers=auth(),
+                  json={'expected_generation': draft['generation'] + 1}).status_code == 200
+    response = c.get('/pxe/boot.ipxe', params={'mac': MAC, 'windows_only': 1})
+    assert '--timeout' not in response.text
+    assert 'Automatic start disabled. Select Start assigned.' in response.text
+    make(c, profile, {'method': 'zero'})
+    response = c.get('/pxe/boot.ipxe', params={'mac': MAC, 'windows_only': 1})
+    assert '--timeout' not in response.text and 'item assigned ' not in response.text
+    assert 'No assigned or default routine' in response.text
 
 
 @pytest.mark.parametrize('change', ['missing-loader', 'missing-windows', 'path', 'scope', 'release-mismatch'])

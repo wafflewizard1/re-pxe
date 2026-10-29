@@ -710,8 +710,6 @@ def menu_script(store, mac, address, alternatives=False, idle=False, preview=Fal
         records = db.execute('''SELECT v.* FROM routines r JOIN routine_versions v ON v.routine_id=r.id AND v.version=r.published_version ORDER BY r.created,r.id LIMIT 100''').fetchall()
     if windows_only:
         records=[r for r in records if windows_secure_boot.supported(json.loads(r['spec']))]
-        menu=menu.model_copy(update={'graphics':False,'show_banner':False})
-        idle=True  # Signed upstream binaries do not include our empty-input countdown patch.
     scope='&windows_only=1' if windows_only else ''
     base = f'http://{address}:8089/pxe/routines'
     from .boot_appearance import commands, saved_appearance
