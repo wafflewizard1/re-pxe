@@ -1,5 +1,4 @@
 #include <repxe/windows.hpp>
-#include <repxe/windows_update.hpp>
 #include <repxe/technician.hpp>
 #include <windows.h>
 #include <algorithm>
@@ -8,7 +7,7 @@
 #include <stdexcept>
 
 namespace {
-const char* help=R"(re-pxe native AMD64 client 0.14.1
+const char* help=R"(re-pxe native AMD64 client 0.14.2
 
   repxe pxe --boot PATH
   repxe ui [--config PATH] [--audit-log PATH]
@@ -36,13 +35,13 @@ int wmain(int argc,wchar_t** argv){
     using namespace repxe;
     try{
         if(argc<2 || std::wstring(argv[1])==L"--help" || std::wstring(argv[1])==L"help"){std::cout<<help;return 0;}
-        if(std::wstring(argv[1])==L"version"){std::cout<<"0.14.1\n";return 0;}
+        if(std::wstring(argv[1])==L"version"){std::cout<<"0.14.2\n";return 0;}
         std::map<std::wstring,std::wstring> options;
         for(int i=2;i<argc;++i){std::wstring key=argv[i];if(key==L"--execute"){if(options.contains(key))throw std::runtime_error("Duplicate option");options[key]=L"true";continue;}
             if(key.rfind(L"--",0)!=0 || i+1>=argc)throw std::runtime_error("Options require --name value");
             if(options.contains(key))throw std::runtime_error("Duplicate option");options[key]=argv[++i];}
         const auto command=std::wstring(argv[1]);
-        std::map<std::wstring,std::vector<std::wstring>> accepted={{L"pxe",{L"--boot"}},{L"ui",{L"--config",L"--audit-log"}},{L"connect-share",{L"--path",L"--user"}},{L"server-images",{L"--server"}},{L"server-deploy",{L"--config",L"--server",L"--image-id",L"--execute"}},{L"sync-job",{L"--queue"}},{L"deliver-report",{L"--offline-windows"}},{L"update-drivers",{}},{L"complete",{}},{L"completion-status",{}},{L"driver-console",{}},{L"driver-action",{L"--name",L"--file"}},{L"inventory",{}},{L"inspect-image",{L"--image",L"--index"}},
+        std::map<std::wstring,std::vector<std::wstring>> accepted={{L"pxe",{L"--boot"}},{L"ui",{L"--config",L"--audit-log"}},{L"connect-share",{L"--path",L"--user"}},{L"server-images",{L"--server"}},{L"server-deploy",{L"--config",L"--server",L"--image-id",L"--execute"}},{L"sync-job",{L"--queue"}},{L"deliver-report",{L"--offline-windows"}},{L"complete",{}},{L"completion-status",{}},{L"driver-console",{}},{L"driver-action",{L"--name",L"--file"}},{L"inventory",{}},{L"inspect-image",{L"--image",L"--index"}},
             {L"hash",{L"--file"}},{L"locate",{L"--path"}},{L"plan",{L"--config"}},{L"capture",{L"--config",L"--execute"}},{L"deploy",{L"--config",L"--execute"}}};
         if(!accepted.contains(command))throw std::runtime_error("Unknown command");
         for(const auto& [key,value]:options)if(std::find(accepted[command].begin(),accepted[command].end(),key)==accepted[command].end())throw std::runtime_error("Unknown option: "+utf8(key));
@@ -65,8 +64,7 @@ int wmain(int argc,wchar_t** argv){
         if(command==L"driver-console")return driver_console();
         if(command==L"driver-action")result=driver_session_action(utf8(required(L"--name").wstring()),options.contains(L"--file")?required(L"--file"):std::filesystem::path{});
         if(command==L"complete"){if(completion_uses_console())return driver_console();result=complete_windows();}
-        if(command==L"update-drivers")result=windows_update_worker();
-        else if(command==L"inventory")result=inventory();
+        if(command==L"inventory")result=inventory();
         if(command==L"inspect-image"){int index=1;if(options.contains(L"--index")){size_t parsed=0;index=std::stoi(options[L"--index"],&parsed);if(parsed!=options[L"--index"].size())throw std::runtime_error("Invalid image index");}result=inspect_wim(required(L"--image"),index);}
         if(command==L"hash"){auto file=required(L"--file");result={{"sha256",sha256(file)},{"file",utf8(file.wstring())}};}
         if(command==L"locate")result=locate_resource(required(L"--path"),"requested path");

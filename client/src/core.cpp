@@ -92,13 +92,6 @@ std::string completion_action(const std::string& stage,bool new_boot,bool driver
     throw std::runtime_error("Completion stage cannot be retried automatically");
 }
 
-std::string driver_fallback_action(bool problems,int attempts,int maximum,const std::string& last_status){
-    require(maximum>=1 && maximum<=3 && attempts>=0 && attempts<=maximum,"Invalid Windows Update attempt bound");
-    if(!problems)return "seal-oobe";
-    if(attempts>=maximum || (!last_status.empty() && last_status!="succeeded"))return "needs-operator";
-    return "windows-update";
-}
-
 Json driver_install_result(int code){
     // PnPUtil /add-driver <one INF> /install: 259 means no matching device
     // or Windows already uses a better/newer driver; it is a completed skip.
@@ -168,14 +161,6 @@ std::string completion_seal_action(const std::string& image_state){
     if(image_state=="IMAGE_STATE_SPECIALIZE_RESEAL_TO_OOBE")return "finalize-oobe";
     require(image_state=="IMAGE_STATE_SPECIALIZE_RESEAL_TO_AUDIT"||image_state=="IMAGE_STATE_GENERALIZE_RESEAL_TO_AUDIT","Finish requires the provisioned Audit installation or its verified OOBE checkpoint");
     return "seal-oobe";
-}
-
-bool driver_update_matches(const std::string& hardware_id,const Json& problems){
-    if(hardware_id.empty())return false;
-    auto fold=[](std::string s){std::transform(s.begin(),s.end(),s.begin(),[](unsigned char c){return std::tolower(c);});return s;};
-    for(const auto& device:problems)for(const auto* key:{"hardwareIds","compatibleIds"})
-        for(const auto& id:device.value(key,Json::array()))if(fold(id.get<std::string>())==fold(hardware_id))return true;
-    return false;
 }
 
 unsigned long long driver_upload_offset(const Json& expected,const Json& remote){
@@ -387,6 +372,8 @@ void validate_config(const Json& config) {
     if(config.contains("driverConsole"))require(config.at("driverConsole").is_boolean(),"Invalid driver console option");
     if(config.contains("offlineDriverMode"))require(config.at("offlineDriverMode")=="boot-critical"||config.at("offlineDriverMode")=="all-reviewed","Unsupported offline driver mode");
     if(config.contains("windowsUpdate")){
+        // Legacy configurations may still carry this field. Validate its shape
+        // for compatibility; the client no longer starts Windows Update work.
         const auto& policy=config.at("windowsUpdate");
         require(policy.is_object() && policy.size()==2,"Invalid Windows Update driver policy");
         auto timeout=integer_field(policy,"timeoutSeconds",0),attempts=integer_field(policy,"maxAttempts",0);
@@ -526,7 +513,7 @@ Json deployment_plan(const Json& config, const Json& inventory, const Json& imag
     const auto required = image_bytes + headroom + esp + msr + recovery + 4 * MiB;
     const auto capacity = target.at("sizeBytes").get<unsigned long long>();
     require(capacity >= required, "Target disk is too small for the image, layout and free-space reserve");
-    return {{"schemaVersion", 1}, {"toolVersion", "0.14.1"}, {"readOnly", true}, {"diskWritesPerformed", false},
+    return {{"schemaVersion", 1}, {"toolVersion", "0.14.2"}, {"readOnly", true}, {"diskWritesPerformed", false},
         {"config", config}, {"target", target}, {"image", selected_image}, {"sha256", actual_hash},
         {"resources", resources}, {"requiredBytes", required}, {"preserveOtherDisks", true},
         {"layout", Json::array({{{"role","efi"},{"filesystem","FAT32"},{"sizeMiB",260}},

@@ -146,7 +146,7 @@ try{
     bad_policy=automatic;bad_policy["managedSelection"]=false;rejects([&]{validate_pxe_automation(bad_policy,candidates);},"Require server-managed image selection");
     bad_policy=automatic;bad_policy["startDelaySeconds"]=0;validate_pxe_automation(bad_policy,candidates);check(true,"Permit an explicitly configured immediate start");
     auto plan=deployment_plan(base,hardware,wim,hash,paths);
-    check(plan["toolVersion"]=="0.14.1","Report current planner version");
+    check(plan["toolVersion"]=="0.14.2","Report current planner version");
     check(plan["readOnly"]==true && plan["diskWritesPerformed"]==false,"Planning must not perform writes");
     check(plan["target"]["number"]==1 && plan["preserveOtherDisks"]==true,"Resolve exactly the requested target");
     check(plan["executionAvailable"]==false,"Execution requires an explicit target policy");
@@ -289,17 +289,6 @@ try{
     int installed_count=0,skipped_count=0;bool reboot=false;
     for(int code:{259,0,3010,259}){auto result=driver_install_result(code);installed_count+=result.at("changed").get<bool>();skipped_count+=!result.at("changed").get<bool>();reboot=reboot||result.at("rebootRequired").get<bool>();}
     check(installed_count==2 && skipped_count==2 && reboot,"Continue a mixed driver pass after non-applicable INFs");
-    check(driver_fallback_action(false,0,2,"")=="seal-oobe","Healthy devices skip Windows Update");
-    check(driver_fallback_action(true,0,2,"")=="windows-update","Unresolved devices start bounded driver fallback");
-    check(driver_fallback_action(true,1,2,"succeeded")=="windows-update","Successful attempt can retry after verified reboot");
-    for(const auto* status:{"failed","timed-out","no-applicable-drivers","interrupted"})check(driver_fallback_action(true,1,2,status)=="needs-operator","Failed or interrupted operations do not repeat");
-    check(driver_fallback_action(true,2,2,"succeeded")=="needs-operator","Bound driver update retries");
-    rejects([&]{driver_fallback_action(true,1,4,"");},"Reject unbounded driver attempts");
-    Json unresolved=Json::array({{{"hardwareIds",Json::array({"PCI\\VEN_1234&DEV_5678"})},{"compatibleIds",Json::array({"PCI\\CC_0200"})}}});
-    check(driver_update_matches("pci\\ven_1234&dev_5678",unresolved),"Match driver hardware IDs case insensitively");
-    check(driver_update_matches("PCI\\CC_0200",unresolved),"Match unresolved compatible IDs");
-    check(!driver_update_matches("PCI\\VEN_4321",unresolved),"Exclude healthy or unrelated driver updates");
-    check(!driver_update_matches("",unresolved),"Do not match missing update IDs");
     copy=base;copy["windowsUpdate"]={{"timeoutSeconds",60},{"maxAttempts",1}};validate_config(copy);
     copy["windowsUpdate"]["timeoutSeconds"]=0;rejects([&]{validate_config(copy);},"Reject unbounded Windows Update timeouts");
     copy=package;copy["bootCriticalInfPaths"]=Json::array({"driver.inf"});validate_driver_manifest(copy);

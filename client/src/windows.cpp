@@ -1,5 +1,4 @@
 #include <repxe/windows.hpp>
-#include <repxe/windows_update.hpp>
 #include <repxe/windows_trust.hpp>
 #include <repxe/operation_lock.hpp>
 #include <repxe/state_file.hpp>
@@ -209,7 +208,7 @@ Json inventory(){
             {"size_bytes",disk.at("sizeBytes")},{"removable",disk.at("removable")},
             {"bus_type",bus==17?"NVMe":bus==11?"SATA":bus==7?"USB":bus==1?"SCSI":bus==8?"RAID":"Other"}});
     }
-    return {{"specs",specs},{"manufacturer",bios(L"SystemManufacturer")},{"model",bios(L"SystemProductName")},{"schemaVersion",1},{"toolVersion","0.14.1"},{"readOnly",true},{"environment",{{"winpe",winpe()},{"administrator",admin()},
+    return {{"specs",specs},{"manufacturer",bios(L"SystemManufacturer")},{"model",bios(L"SystemProductName")},{"schemaVersion",1},{"toolVersion","0.14.2"},{"readOnly",true},{"environment",{{"winpe",winpe()},{"administrator",admin()},
         {"firmware",firmware==FirmwareTypeUefi?"uefi":firmware==FirmwareTypeBios?"bios":"unknown"},
         {"architecture",system.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64?"amd64":"unsupported"},
         {"executable",utf8(executable())}}},{"disks",disks},{"volumes",volumes},{"warnings",warnings}};
@@ -519,7 +518,7 @@ Json deploy_internal(Json config,const std::filesystem::path& config_path,bool e
     plan["blankTargetVerified"]=blank_only;plan["targetWillBeFormatted"]=target_policy=="format-selected-disk";plan["layoutBytes"]=parts;if(!execute)return plan;
     Handle mutex(CreateMutexW(nullptr,TRUE,L"Global\\repxeDeployment"));if(!mutex)fail("Create deployment lock");if(GetLastError()==ERROR_ALREADY_EXISTS)throw std::runtime_error("Another deployment owns the deployment lock");
     auto id=sha256(config_path).substr(0,16);auto jobs=std::filesystem::path(wide(config.at("jobDirectory")));auto job=jobs/(L"deploy-"+wide(id)+L".json");if(std::filesystem::exists(job))throw std::runtime_error("Deployment job already exists; automatic destructive retries are refused");
-    Json state={{"schemaVersion",1},{"toolVersion","0.14.1"},{"id",id},{"stage","preflight"},{"startedUtc",utc_now()},{"plan",plan},{"history",Json::array()},{"diskWritesPerformed",false}};
+    Json state={{"schemaVersion",1},{"toolVersion","0.14.2"},{"id",id},{"stage","preflight"},{"startedUtc",utc_now()},{"plan",plan},{"history",Json::array()},{"diskWritesPerformed",false}};
     auto stage=[&](const char* name){state["stage"]=name;state.erase("progressPercent");if(std::string(name)=="applying-image")state["progressPercent"]=0;state["history"].push_back({{"stage",name},{"utc",utc_now()}});write_json(job,state);std::cerr<<"Deployment stage: "<<name<<"\n";if(progress)progress(state);};
     auto tool=[&](const char* name,std::vector<std::wstring> args,const std::string& input=""){auto log=jobs/(L"deploy-"+wide(id)+L"-"+wide(name)+L".log");std::function<void(int)> observe;
         if(std::string(name)=="apply")observe=[&](int percent){state["progressPercent"]=percent;state["imageApplyPercent"]=percent;write_json(job,state);if(progress)progress(state);};
@@ -788,10 +787,10 @@ void stage_completion(const std::filesystem::path& volume,const Json& target,con
     std::filesystem::create_directories(root);protect_path(root);
     for(size_t i=0;i<previous_answers.size();++i){auto backup=root/(L"reference-unattend-"+std::to_wstring(i)+L".xml");std::filesystem::copy_file(previous_answers[i],backup);protect_path(backup);std::filesystem::remove(previous_answers[i]);}
     auto exe=root/L"re-pxe.exe";std::filesystem::copy_file(executable(),exe);protect_path(exe);
-    Json state={{"schemaVersion",1},{"toolVersion","0.14.1"},{"id",id},{"stage","awaiting-windows"},{"target",target},{"diskGuid",guid_text(disk_id)},{"windowsPartitionGuid",guid_text(partition_id)},
+    Json state={{"schemaVersion",1},{"toolVersion","0.14.2"},{"id",id},{"stage","awaiting-windows"},{"target",target},{"diskGuid",guid_text(disk_id)},{"windowsPartitionGuid",guid_text(partition_id)},
         {"clientSha256",sha256(exe)},{"kernelSha256",sha256(volume/L"Windows\\System32\\ntoskrnl.exe")},{"imageSha256",config.at("sha256")},{"imageIndex",config.value("imageIndex",1)},
         {"history",Json::array()},{"bootObservations",Json::array()},{"driverActions",Json::array()},{"deliveryStatus","local-only"},{"generalizationPerformed",false}};
-    if(config.value("driverConsole",false)){state["driverConsole"]=true;state["driverAutomaticAttempted"]=false;if(!config.contains("windowsUpdate"))state["windowsUpdateRegistry"]=pause_update_policy(volume/L"Windows");}
+    if(config.value("driverConsole",false)){state["driverConsole"]=true;state["driverAutomaticAttempted"]=false;state["windowsUpdateRegistry"]=pause_update_policy(volume/L"Windows");}
     state["imageVerification"]={{"sha256Checked",config.value("verifyImage",true)},{"expectedSha256",config.at("sha256")}};
     state["offlineDrivers"]=offline;
     if(config.contains("finishOptions")){
@@ -800,7 +799,6 @@ void stage_completion(const std::filesystem::path& volume,const Json& target,con
         auto saved=root/L"answer-customer.xml";write_text_new(saved,finish_answer_xml(original,config.at("finishOptions")));protect_path(saved);state["finalAnswerSha256"]=sha256(saved);
         if(pxe){auto staging=volume/L".re-pxeStage";verify_protected(staging);auto owner=staging/L"re-pxe-owner.json";write_json(owner,{{"installationId",id},{"clientSha256",state.at("clientSha256")}});protect_path(owner);state["pxeStagingCleanup"]=true;}
     }
-    if(config.contains("windowsUpdate")){state["windowsUpdatePolicy"]=config.at("windowsUpdate");state["windowsUpdateAttempts"]=Json::array();state["windowsUpdateRegistry"]=pause_update_policy(volume/L"Windows");}
     auto package=read_driver_package(config);
     if(!package.manifest.is_null()){
         auto drivers=root/L"drivers";std::filesystem::create_directory(drivers);protect_path(drivers);
@@ -1057,18 +1055,6 @@ Json deliver_report(const std::filesystem::path& offline){
     write_json(installed.file,state);protect_path(installed.file);finalize_customer_handoff(installed.windows,installed.root,state);return queue;
 }
 
-Json windows_update_worker(){
-    auto installed=completion_installation({});auto& state=installed.state;
-    auto image_state=registry_text(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\State",L"ImageState");
-    if(image_state.find(L"RESEAL_TO_AUDIT")==std::wstring::npos||state.at("stage")!="updating-drivers"||!state.contains("windowsUpdatePolicy"))throw std::runtime_error("Driver worker requires a protected pending Audit completion");
-    OperationLock lock(L"Global\\repxeDriverUpdate");if(!lock)throw std::runtime_error("Driver worker is already running");
-    const auto attempt=state.at("windowsUpdateAttempts").size();if(!attempt||attempt>3)throw std::runtime_error("Invalid driver update attempt");
-    auto result=installed.root/(L"windows-update-"+std::to_wstring(attempt)+L".json");
-    if(std::filesystem::exists(result))throw std::runtime_error("Driver attempt already has evidence; do not replay it");
-    auto persist=[&](const Json& report){write_json(result,report);protect_path(result);};
-    return update_unresolved_drivers(device_status().at("problems"),state.at("windowsUpdatePolicy").at("timeoutSeconds"),persist);
-}
-
 Json complete_windows(const std::string& mode){
     auto installed=completion_installation({});auto windows=installed.windows,root=installed.root,exe=installed.exe,file=installed.file;auto state=installed.state;
     OperationLock mutex(L"Global\\repxeCompletion");if(!mutex)return {{"stage","already-running"}};
@@ -1121,7 +1107,7 @@ Json complete_windows(const std::string& mode){
         }
         if(state.contains("trustedServerCertificateSha256")){auto certificate=root/L"server-ca.der";verify_protected(certificate);if(sha256(certificate)!=state.at("trustedServerCertificateSha256").get<std::string>())throw std::runtime_error("Provisioned server certificate changed");install_public_root(certificate);}
         if(!state.value("driverConsole",false)||state["bootObservations"].empty()||state["bootObservations"].back().at("bootId")!=boot)state["bootObservations"].push_back({{"bootId",boot},{"uptimeMs",GetTickCount64()},{"imageState",image_state},{"utc",utc_now()}});
-        // Scan immediately; server drivers precede the bounded Windows Update fallback.
+        // Scan immediately after the server driver pass.
         run(L"pnputil.exe",{L"/scan-devices"},"device-scan");Sleep(5000);
         state["hardware"]=hardware_summary();state["drivers"]=device_status();
         if(current=="awaiting-windows"){
@@ -1155,34 +1141,6 @@ Json complete_windows(const std::string& mode){
             state["technicianFinish"]["sealedUtc"]=utc_now();
             // Retain earlier diagnostics and current unresolved devices as report evidence.
             write_json(file,state);protect_path(file);
-        }
-        if(mode!="finish"&&state.contains("windowsUpdatePolicy")){
-            auto& attempts=state["windowsUpdateAttempts"];auto last=attempts.empty()?std::string():attempts.back().value("status",std::string("interrupted"));
-            action=driver_fallback_action(!state["drivers"]["problems"].empty(),static_cast<int>(attempts.size()),state["windowsUpdatePolicy"].at("maxAttempts"),last);
-            if(action=="windows-update"){
-                attempts.push_back({{"status","running"},{"startedUtc",utc_now()},{"unresolvedDevices",state["drivers"]["problems"]}});
-                stage("updating-drivers");
-                auto index=attempts.size();auto timeout=state["windowsUpdatePolicy"].at("timeoutSeconds").get<DWORD>();
-                auto log=root/(L"windows-update-"+std::to_wstring(index)+L".log");
-                const auto code=run_logged({exe.wstring(),L"update-drivers"},log,"",(timeout+60)*1000);
-                auto evidence=root/(L"windows-update-"+std::to_wstring(index)+L".json");Json result;
-                if(std::filesystem::exists(evidence)){verify_protected(evidence);if(std::filesystem::file_size(evidence)>256*1024)throw std::runtime_error("Driver update evidence exceeds bound");result=read_json(evidence);}
-                else result={{"status","failed"},{"error","Driver update worker did not record a result"}};
-                if(code!=0||result.value("status",std::string())=="running"){
-                    result["status"]=code==ERROR_TIMEOUT?"timed-out":"failed";result["error"]="Driver worker stopped without a completed operation";result["installationMayBeInProgress"]=true;
-                }
-                attempts.back()["result"]=result;attempts.back()["status"]=result.value("status",std::string("failed"));attempts.back()["workerExitCode"]=code;attempts.back()["finishedUtc"]=utc_now();
-                write_json(file,state);protect_path(file);
-                run(L"pnputil.exe",{L"/scan-devices"},"post-update-scan");Sleep(5000);state["drivers"]=device_status();
-                if(result.at("status")=="succeeded"){
-                    // All successful attempts receive a new boot before verification,
-                    // including installs that report no explicit restart requirement.
-                    state["checkpointBootId"]=boot;state["checkpointReason"]="verify Windows Update drivers after restart";stage("reboot-pending");
-                    run(L"shutdown.exe",{L"/r",L"/t",L"10"},"driver-update-reboot");return state;
-                }
-                state["error"]=result.value("error",std::string("Windows Update found no applicable driver for the remaining devices"));action="needs-operator";
-            }
-            if(action=="needs-operator"&&!state.contains("error"))state["error"]="Unresolved devices remain after the configured Windows Update attempt limit";
         }
         if(action=="needs-operator"){if(!state.contains("windowsUpdateAttempts")||state["windowsUpdateAttempts"].empty()||!state["windowsUpdateAttempts"].back().value("result",Json::object()).value("installationMayBeInProgress",false))restore_update_policy(state);completion_trigger(false,exe.wstring());clean_completion_answers(windows);state["startupTriggerRemoved"]=true;stage("needs-operator");persist_report(root,state);return state;}
         // Refresh components after the driver's final scan, including newly named GPUs.
@@ -1296,7 +1254,7 @@ void driver_remote_controls(){
         busy=!operation||!worker||state.value("driverInstallationMayBeInProgress",false);
     }
     const auto connection=driver_connection(context);
-    Json request={{"client_version","0.14.1"},{"busy",busy}};
+    Json request={{"client_version","0.14.2"},{"busy",busy}};
     auto response=pxe_api(connection.origin,connection.token,connection.path+"/windows/poll",&request);
     if(!response.contains("command")||response.at("command").is_null())return;
     auto command=response.at("command");validate_windows_command(command,connection.path);
@@ -1337,7 +1295,7 @@ void driver_remote_controls(){
                         // pulse advertises activity without claiming another file.
                         try{
                             completion_pulse(context.root,"completing");
-                            Json pulse={{"client_version","0.14.1"},{"busy",true},{"accept_commands",false}};
+                            Json pulse={{"client_version","0.14.2"},{"busy",true},{"accept_commands",false}};
                             pxe_api(connection.origin,connection.token,connection.path+"/windows/poll",&pulse);
                         }catch(...){}
                     });
@@ -1394,7 +1352,7 @@ Json driver_session_action(const std::string& action,const std::filesystem::path
         OperationLock finish_lock(L"Global\\repxeCompletion");
         if(!finish_lock)throw std::runtime_error("Another driver operation is running");
         OperationLock worker_lock(L"Global\\repxeDriverUpdate");
-        if(!worker_lock)throw std::runtime_error("A Windows Update driver operation is still running");
+        if(!worker_lock)throw std::runtime_error("A previous driver update operation is still running");
         state=completion_state_after_reload(read_json(file),installed.state);next=driver_finish_action(state,boot_identity());
         const auto live_seal=completion_seal_action(utf8(registry_text(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\State",L"ImageState")));
         if(live_seal=="finalize-oobe"&&next=="checkpoint-reboot")throw std::runtime_error("OOBE is already sealed but its driver restart checkpoint is incomplete; preserve the report and review the saved restart evidence");
@@ -1533,7 +1491,7 @@ Json driver_session_action(const std::string& action,const std::filesystem::path
         emit("Upload validated and added to the driver library for this model. Local files and logs have been retained.");state["driverUploads"].push_back({{"id",id},{"sha256",spec.at("sha256")},{"utc",utc_now()}});state.erase("pendingDriverUpload");save();return ready;
         }catch(const std::exception& e){state["driverUploadError"]=e.what();save();throw;}
     }
-    if(action!="install"&&action!="update")throw std::runtime_error("Unknown driver action");
+    if(action!="install")throw std::runtime_error("Unknown driver action");
     if(state.value("driverInstallationMayBeInProgress",false)||state.value("driverRebootRequired",false))throw std::runtime_error("Restart before installing more drivers");
     state["driverAutomaticAttempted"]=true;state.erase("error");save();bool changed=false;Json pass=Json::array();
     try{
@@ -1586,22 +1544,6 @@ Json driver_session_action(const std::string& action,const std::filesystem::path
             run({system_directory()+L"\\pnputil.exe",L"/scan-devices"},"console-after-driver-scan");Sleep(5000);
         }
         state["drivers"]=device_status();state["hardware"]=hardware_summary();
-        if((action=="update"||state.contains("windowsUpdatePolicy"))&&!state.at("drivers").at("problems").empty()){
-            if(!state.contains("windowsUpdatePolicy"))state["windowsUpdatePolicy"]={{"timeoutSeconds",900},{"maxAttempts",2}};
-            if(!state.contains("windowsUpdateAttempts"))state["windowsUpdateAttempts"]=Json::array();
-            auto& attempts=state["windowsUpdateAttempts"];const auto maximum=action=="update"?3:state.at("windowsUpdatePolicy").at("maxAttempts").get<int>();
-            if(attempts.size()>=static_cast<size_t>(maximum))throw std::runtime_error("Windows Update attempt limit reached. Upload a known driver or review the saved diagnostics");
-            emit("Checking Windows Update for drivers for unresolved devices only…");attempts.push_back({{"status","running"},{"startedUtc",utc_now()},{"unresolvedDevices",state.at("drivers").at("problems")}});stage("updating-drivers");
-            auto index=attempts.size();auto timeout=state.at("windowsUpdatePolicy").at("timeoutSeconds").get<DWORD>();
-            auto code=run_logged({installed.exe.wstring(),L"update-drivers"},root/(L"windows-update-"+std::to_wstring(index)+L".log"),"",(timeout+60)*1000);
-            auto evidence=root/(L"windows-update-"+std::to_wstring(index)+L".json");Json result={{"status","failed"},{"error","Driver worker did not record a result"}};
-            if(std::filesystem::exists(evidence)){verify_protected(evidence);if(std::filesystem::file_size(evidence)>256*1024)throw std::runtime_error("Driver update evidence exceeds bound");result=read_json(evidence);}
-            if(code||result.value("status",std::string())=="running"){result["status"]=code==ERROR_TIMEOUT?"timed-out":"failed";result["installationMayBeInProgress"]=true;}
-            attempts.back()["result"]=result;attempts.back()["status"]=result.value("status",std::string("failed"));attempts.back()["workerExitCode"]=code;attempts.back()["finishedUtc"]=utc_now();
-            if(result.value("installationMayBeInProgress",false))state["driverInstallationMayBeInProgress"]=true;
-            if(result.at("status")=="succeeded")changed=true;
-            else state["error"]=result.value("error",std::string("No applicable driver was found for the remaining devices"));save();
-        }
         run({system_directory()+L"\\pnputil.exe",L"/scan-devices"},"console-final-device-scan");Sleep(3000);state["drivers"]=device_status();
         state["driverRebootRequired"]=changed||state.value("driverInstallationMayBeInProgress",false);
         if(state.at("driverRebootRequired")==true){state["checkpointBootId"]=boot;stage("driver-reboot-pending");emit("Driver changes saved. Restarting automatically; the main menu will reopen afterward.");restart(root/(L"driver-restart-"+std::to_wstring(GetTickCount64())+L".log"));}

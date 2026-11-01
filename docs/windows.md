@@ -156,7 +156,10 @@ selection protocol, so current clients do not need new media.
 Upload your generalized AMD64 Windows image in the portal, select its image index,
 review its validation and publish it. Create an enabled Windows preset, then use
 that preset in a Windows step of a published routine. Driver packages can be added
-through the portal; exact-model reviewed drivers and Windows Update are supported.
+through the portal; matching reviewed server drivers and local signed INFs are supported.
+The client does not search Windows Update. Remaining device problems stay visible
+for technician review before Finish setup. Older preset update fields are accepted
+for compatibility and ignored by client 0.14.2 and later.
 
 The Windows image upload's SHA-256 field is optional. Leave it blank and the
 server calculates and records the hash while validating the uploaded WIM.
