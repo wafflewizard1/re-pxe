@@ -1299,7 +1299,7 @@ void driver_remote_controls(){
                             pxe_api(connection.origin,connection.token,connection.path+"/windows/poll",&pulse);
                         }catch(...){}
                     });
-                    if(sha256(staged)!=command.at("sha256"))throw std::runtime_error("Uploaded desktop file hash differs");
+                    if(sha256(staged)!=command.at("sha256").get<std::string>())throw std::runtime_error("Uploaded desktop file hash differs");
                     PWSTR known=nullptr;
                     if(FAILED(SHGetKnownFolderPath(FOLDERID_Desktop,KF_FLAG_CREATE,nullptr,&known)))throw std::runtime_error("Cannot locate the signed-in user's Desktop");
                     std::filesystem::path desktop(known);CoTaskMemFree(known);no_reparse(desktop);
