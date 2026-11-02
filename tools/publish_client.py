@@ -12,7 +12,7 @@ import time
 import paramiko
 
 ROOT=Path(__file__).resolve().parents[1]
-VERSION='0.14.1'
+VERSION='0.14.3'
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -29,7 +29,7 @@ def main():
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',version):parser.error('Use a numeric release version')
     artifacts=args.artifacts
     package=artifacts/f're-pxe-client-{version}.zip'
-    files=[(artifacts/name,name) for name in ('re-pxe.exe','repxe_core_tests.exe','repxe_wua_tests.exe')]
+    files=[(artifacts/name,name) for name in ('re-pxe.exe','repxe_core_tests.exe')]
     if (artifacts/'repxe_hardware_tests.exe').exists():
         files.append((artifacts/'repxe_hardware_tests.exe','repxe_hardware_tests.exe'))
     if (artifacts/'repxe_progress_tests.exe').exists():
@@ -54,13 +54,13 @@ def main():
               'configurableBlankRawOnlyPolicyAvailable':True,
               'technicianUiAvailable':True,'technicalDetailsVisibleByDefault':False,'simplifiedPxeClientAvailable':True,'pxeBootAvailable':True,'dashboardImageSelectionAvailable':True,'automaticPxeDiskSelectionAvailable':True,'configurablePxeCountdownAvailable':True,'configurableOfflineClientHidingAvailable':True,'temporaryShareAuthenticationAvailable':True,'serverJobOrchestration':'durable-idempotent-offline-events-explicit-retry',
               'windowsCompletionAvailable':True,'completionDriverInstallationAvailable':True,
-              'automaticDriverSource':'reviewed-exact-model-build-library-then-windows-update',
+              'automaticDriverSource':'reviewed-exact-model-build-library',
               'automaticRestartAfterDeploymentAvailable':True,'driverConsoleAvailable':True,
               'driverConsoleCountdownSeconds':10,'driverConsoleReturnsToMainMenu':True,
               'driverConsoleUploadAvailable':True,'driverLibraryContentDeduplicationAvailable':True,
               'driverLibraryModelTagsAvailable':True,
-              'windowsUpdateDriverCompletionAvailable':True,'windowsUpdateWaitSecondsBounds':[60,1800],
-              'windowsUpdateAttemptBounds':[1,3],'offlineBootCriticalDriverStagingAvailable':True,
+              'windowsUpdateDriverCompletionAvailable':False,'offlineBootCriticalDriverStagingAvailable':True,
+              'nativeReportMaxBytes':10*1024*1024,
               'completionReportDelivery':'https-job-scoped-durable-explicit-retry'}
     if tuple(map(int,version.split('.'))) >= (0,13,0):
         manifest.update({'routineFinishOptionsAvailable':True,'acceptedReportClientCleanupAvailable':True,'customerDesktopPdfAvailable':True,'routineLocalAccountAvailable':True,'customerReportIntegrity':'sha256-and-size'})

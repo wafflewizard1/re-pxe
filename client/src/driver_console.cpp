@@ -15,7 +15,7 @@ namespace repxe {
 namespace {
 constexpr UINT update=WM_APP+81;
 constexpr UINT_PTR countdown=17;
-enum{Transcript=501,Command,Run,Install,Upload,Export,UpdateDrivers,Scan,Restart,Finish,Logs,Cancel,Status,Local,Shell,Retry};
+enum{Transcript=501,Command,Run,Install,Upload,Export,Scan,Restart,Finish,Logs,Cancel,Status,Local,Shell,Retry};
 struct Notice{std::string kind;Json value;};
 struct Console{
     HWND window{};HFONT font{},mono{};std::map<int,HWND> controls;std::thread worker,heartbeat;
@@ -24,16 +24,16 @@ struct Console{
     void set(int id,const std::wstring& value){SetWindowTextW(controls.at(id),value.c_str());}
     void line(const std::string& text){auto control=controls.at(Transcript);auto end=GetWindowTextLengthW(control);if(end>180000){SendMessageW(control,EM_SETSEL,0,60000);SendMessageW(control,EM_REPLACESEL,FALSE,reinterpret_cast<LPARAM>(L""));end=GetWindowTextLengthW(control);}SendMessageW(control,EM_SETSEL,end,end);auto value=wide(text)+L"\r\n";SendMessageW(control,EM_REPLACESEL,FALSE,reinterpret_cast<LPARAM>(value.c_str()));SendMessageW(control,EM_SCROLLCARET,0,0);}
     void post(const std::string& kind,const Json& value){auto p=new Notice{kind,value};if(!PostMessageW(window,update,0,reinterpret_cast<LPARAM>(p)))delete p;}
-    void enable(){for(int id:{Command,Run,Install,Upload,Export,UpdateDrivers,Scan,Restart,Finish,Logs,Local,Shell,Retry})EnableWindow(controls.at(id),!busy&&initialized&&!counting);EnableWindow(controls.at(Cancel),!busy&&counting);EnableWindow(controls.at(Retry),!busy&&initialized&&!counting&&state.contains("pendingDriverUpload"));if(initialized&&!state.is_null()){
+    void enable(){for(int id:{Command,Run,Install,Upload,Export,Scan,Restart,Finish,Logs,Local,Shell,Retry})EnableWindow(controls.at(id),!busy&&initialized&&!counting);EnableWindow(controls.at(Cancel),!busy&&counting);EnableWindow(controls.at(Retry),!busy&&initialized&&!counting&&state.contains("pendingDriverUpload"));if(initialized&&!state.is_null()){
         const bool sealed=state.value("stage",std::string())=="complete";
-        if(sealed)for(int id:{Install,Upload,Export,UpdateDrivers,Scan,Local,Retry})EnableWindow(controls.at(id),FALSE);
+        if(sealed)for(int id:{Install,Upload,Export,Scan,Local,Retry})EnableWindow(controls.at(id),FALSE);
         set(Finish,sealed?L"Retry Finish":L"Finish setup");set(Restart,sealed?L"Shut down":L"Restart");
         EnableWindow(controls.at(Finish),!busy&&driver_finish_available(state));}}
     void start(const std::string& action,const std::filesystem::path& path={}){if(busy)return;KillTimer(window,countdown);counting=false;if(worker.joinable())worker.join();busy=true;enable();set(Status,L"Working: "+wide(action));worker=std::thread([this,action,path]{try{auto result=driver_session_action(action,path,[this](const std::string& line){post("line",line);});if(action=="catalog")post("catalog",result);else if(action=="upload"||action=="export-upload"||action=="retry-upload")post("uploaded",result);else post("state",result);}catch(const std::exception& e){post("error",{{"message",e.what()}});}try{post("snapshot",driver_session_snapshot());}catch(const std::exception& e){post("error",{{"message",e.what()}});}post("idle",Json::object());});}
 };
 HWND control(Console& ui,const wchar_t* type,const wchar_t* text,DWORD style,int x,int y,int width,int height,int id){auto h=CreateWindowExW((style&WS_BORDER)?WS_EX_CLIENTEDGE:0,type,text,WS_CHILD|WS_VISIBLE|style,x,y,width,height,ui.window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),GetModuleHandleW(nullptr),nullptr);if(!h)throw std::runtime_error("Create driver console control");SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(ui.font),TRUE);ui.controls[id]=h;return h;}
 std::filesystem::path choose_zip(HWND owner){std::array<wchar_t,32768> file{};OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.hwndOwner=owner;dialog.lpstrFile=file.data();dialog.nMaxFile=file.size();dialog.lpstrFilter=L"Driver ZIP archives\0*.zip\0\0";dialog.lpstrTitle=L"Upload drivers to the server";dialog.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;return GetOpenFileNameW(&dialog)?std::filesystem::path(file.data()):std::filesystem::path{};}
-void menu(Console& ui){ui.line("MAIN MENU: help | status | drivers | install | upload | export-upload | retry-upload | update | restart | finish | logs | local-inf | shell");ui.line("Upload existing ZIP sends an archive you already have. Collect + upload checks this PC, exports installed drivers and adds them to the server library after validation. Retry upload resumes an interrupted transfer.");}
+void menu(Console& ui){ui.line("MAIN MENU: help | status | drivers | install | upload | export-upload | retry-upload | scan | restart | finish | logs | local-inf | shell");ui.line("Upload existing ZIP sends an archive you already have. Collect + upload checks this PC, exports installed drivers and adds them to the server library after validation. Retry upload resumes an interrupted transfer.");}
 void status(Console& ui){const auto& s=ui.state;
     if(s.value("stage",std::string())=="complete"&&!completion_shutdown_ready(s)){
         ui.line("Windows is sealed. Customer handoff still needs to finish.");
@@ -53,7 +53,7 @@ void command(Console& ui,std::string text){
         ui.start("shutdown");return;
     }
     if(name=="drivers")name="catalog";if(name=="check")name="scan";
-    if(name=="install"||name=="catalog"||name=="export-upload"||name=="retry-upload"||name=="update"||name=="scan"||name=="restart"||name=="finish"){ui.start(name);return;}
+    if(name=="install"||name=="catalog"||name=="export-upload"||name=="retry-upload"||name=="scan"||name=="restart"||name=="finish"){ui.start(name);return;}
     throw std::runtime_error("Unknown command. Type help to see the main menu.");
 }
 LRESULT CALLBACK procedure(HWND h,UINT m,WPARAM w,LPARAM l){
@@ -63,13 +63,13 @@ LRESULT CALLBACK procedure(HWND h,UINT m,WPARAM w,LPARAM l){
             control(*ui,L"STATIC",L"re-pxe - Driver console",0,24,18,900,30,Status);
             auto transcript=control(*ui,L"EDIT",L"",WS_BORDER|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL|WS_VSCROLL,24,56,924,344,Transcript);SendMessageW(transcript,WM_SETFONT,reinterpret_cast<WPARAM>(ui->mono),TRUE);SendMessageW(transcript,EM_SETLIMITTEXT,220000,0);
             control(*ui,L"EDIT",L"",WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL,24,449,798,32,Command);control(*ui,L"BUTTON",L"Run",WS_TABSTOP|BS_DEFPUSHBUTTON,838,447,110,36,Run);
-            control(*ui,L"BUTTON",L"Install server drivers",WS_TABSTOP,24,502,216,38,Install);control(*ui,L"BUTTON",L"Upload existing ZIP",WS_TABSTOP,252,502,216,38,Upload);control(*ui,L"BUTTON",L"Collect + upload",WS_TABSTOP,480,502,216,38,Export);control(*ui,L"BUTTON",L"Windows Update",WS_TABSTOP,708,502,240,38,UpdateDrivers);
+            control(*ui,L"BUTTON",L"Install server drivers",WS_TABSTOP,24,502,296,38,Install);control(*ui,L"BUTTON",L"Upload existing ZIP",WS_TABSTOP,336,502,296,38,Upload);control(*ui,L"BUTTON",L"Collect + upload",WS_TABSTOP,648,502,300,38,Export);
             control(*ui,L"BUTTON",L"Check devices",WS_TABSTOP,24,553,216,38,Scan);control(*ui,L"BUTTON",L"Restart",WS_TABSTOP,252,553,216,38,Restart);control(*ui,L"BUTTON",L"Finish setup",WS_TABSTOP,480,553,216,38,Finish);control(*ui,L"BUTTON",L"Open logs",WS_TABSTOP,708,553,240,38,Logs);
             control(*ui,L"BUTTON",L"Cancel automatic install",WS_TABSTOP,24,607,320,36,Cancel);ShowWindow(ui->controls.at(Cancel),SW_HIDE);control(*ui,L"BUTTON",L"Install local driver",WS_TABSTOP,360,607,260,36,Local);control(*ui,L"BUTTON",L"Command prompt",WS_TABSTOP,636,607,312,36,Shell);control(*ui,L"BUTTON",L"Retry upload",WS_TABSTOP,24,410,216,30,Retry);ui->enable();return 0;
         }
         if(m==WM_CTLCOLOREDIT||m==WM_CTLCOLORSTATIC){auto control=reinterpret_cast<HWND>(l);if(control==ui->controls[Transcript]){auto dc=reinterpret_cast<HDC>(w);SetTextColor(dc,RGB(211,235,219));SetBkColor(dc,RGB(20,32,32));return reinterpret_cast<LRESULT>(GetStockObject(BLACK_BRUSH));}}
         if(m==WM_COMMAND){auto id=LOWORD(w);if(id==Cancel&&ui->counting){KillTimer(h,countdown);ui->counting=false;ShowWindow(ui->controls.at(Cancel),SW_HIDE);ui->line("Automatic installation cancelled. Choose an option from the main menu.");ui->set(Status,L"Main menu");ui->enable();return 0;}if(id==Finish&&ui->counting&&!ui->busy&&ui->initialized){KillTimer(h,countdown);ui->counting=false;ShowWindow(ui->controls.at(Cancel),SW_HIDE);}if(ui->busy||ui->counting||!ui->initialized)return 0;
-            const std::map<int,std::string> actions={{Install,"install"},{Upload,"upload"},{Export,"export-upload"},{UpdateDrivers,"update"},{Scan,"scan"},{Restart,"restart"},{Finish,"finish"},{Logs,"logs"},{Local,"local-inf"},{Shell,"shell"},{Retry,"retry-upload"}};
+            const std::map<int,std::string> actions={{Install,"install"},{Upload,"upload"},{Export,"export-upload"},{Scan,"scan"},{Restart,"restart"},{Finish,"finish"},{Logs,"logs"},{Local,"local-inf"},{Shell,"shell"},{Retry,"retry-upload"}};
             if(actions.contains(id)){command(*ui,actions.at(id));return 0;}
             if(id==Run){std::array<wchar_t,32768> value{};GetWindowTextW(ui->controls.at(Command),value.data(),value.size());ui->set(Command,L"");auto text=utf8(value.data());ui->line("> "+text);command(*ui,text);return 0;}
         }

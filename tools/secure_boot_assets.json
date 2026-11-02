@@ -1,0 +1,14 @@
+{
+  "ipxe": {
+    "version": "2.0.0",
+    "revision": "12798ec29aa8a64d8675c4378b99f5fe28447afb",
+    "archive": {"url": "https://github.com/ipxe/ipxe/releases/download/v2.0.0/ipxeboot.tar.gz", "sha256": "01a526d4cc791fc30362259c609d6c506cc64a7bdff51b9a5eb788354e17eee1", "size": 12002760},
+    "source": {"url": "https://codeload.github.com/ipxe/ipxe/tar.gz/12798ec29aa8a64d8675c4378b99f5fe28447afb", "sha256": "d86d01de6d216f8d51b0a388fa91326c4ce2ef3efff5b122d4c2c47e0593dd1d", "size": 4453534}
+  },
+  "shim": {
+    "version": "16.1",
+    "revision": "d0367b25d04ec90d332909b99d932571f15e5a06",
+    "binary": {"url": "https://github.com/ipxe/shim/releases/download/ipxe-16.1/ipxe-shimx64.efi", "sha256": "5eecca2780bd49c900565e124516a1bd666ec5e012825f34991b6ba1ef2fa6cf", "size": 1048424},
+    "source": {"url": "https://codeload.github.com/ipxe/shim/tar.gz/d0367b25d04ec90d332909b99d932571f15e5a06", "sha256": "01cc4ef12d9e7246ce7ed592bf7d9000544aa16d1fb9b2793068f565af37a3e1", "size": 2666369}
+  }
+}

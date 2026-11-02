@@ -22,12 +22,15 @@ std::string battery_health_script();
 Json powercfg_battery_health(const std::string& xml);
 inline constexpr unsigned long long MiB = 1024ULL * 1024;
 inline constexpr unsigned long long GiB = 1024ULL * MiB;
+inline constexpr unsigned long long NativeReportMaxBytes = 10 * MiB;
+// Completion state also contains local delivery/retry diagnostics.
+inline constexpr unsigned long long CompletionStateMaxBytes = 16 * MiB;
+void validate_queued_report(unsigned long long size,const std::string& expected_hash,const std::string& actual_hash);
 std::string completion_action(const std::string& stage, bool new_boot, bool driver_problems);
 bool validate_completion_bindings(const Json& state,const std::string& installed_hash,const std::string& running_hash,const std::string& kernel_hash,bool trusted_kernel);
 // Merge a fresh state read with evidence from the independently verified
 // installation snapshot. Never require this derived evidence in the disk file.
 Json completion_state_after_reload(Json persisted,const Json& verified);
-std::string driver_fallback_action(bool problems, int attempts, int maximum, const std::string& last_status);
 Json driver_install_result(int exit_code);
 Json driver_attempt_result(int exit_code);
 Json driver_pass_summary(const Json& results);
@@ -40,7 +43,6 @@ bool completion_shutdown_ready(const Json& state);
 void validate_driver_export(const Json& hardware,const Json& devices);
 Json offline_driver_plan(const Json& config,const Json& manifest);
 unsigned long long driver_upload_offset(const Json& expected,const Json& remote);
-bool driver_update_matches(const std::string& hardware_id, const Json& problems);
 Json inspect_xml(const std::string& xml, int index);
 Json deployment_plan(const Json& config, const Json& inventory, const Json& image,
                      const std::string& actual_hash, const Json& resources);

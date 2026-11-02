@@ -1,5 +1,5 @@
 """PXE tickets, device-scoped sessions and live dashboard projections."""
-from . import driver_management, file_workspace, workflows, routines, wimboot_assets
+from . import driver_management, file_workspace, workflows, routines, wimboot_assets, windows_secure_boot
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -211,14 +211,14 @@ def install(app, store, Role, allow, boot_options_for, profile_artifacts, create
         return current == pinned
 
     @app.get('/pxe/boot.ipxe',response_class=PlainTextResponse)
-    def boot(mac: str):
-        return boot_script(mac, custom=True)
+    def boot(mac: str, windows_only: bool=False):
+        return boot_script(mac, custom=True, windows_only=windows_only)
 
     @app.get('/pxe/managed.ipxe',response_class=PlainTextResponse)
-    def managed_boot(mac: str):
-        return boot_script(mac, custom=False)
+    def managed_boot(mac: str, windows_only: bool=False):
+        return boot_script(mac, custom=False, windows_only=windows_only)
 
-    def boot_script(mac, custom):
+    def boot_script(mac, custom, windows_only=False):
         if not re.fullmatch(r'[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}',mac):raise HTTPException(422,'MAC required')
         # Network-first firmware can return here after the automatic WinPE
         # restart. Keep the active completion job bound to its installed disk.
@@ -234,17 +234,24 @@ def install(app, store, Role, allow, boot_options_for, profile_artifacts, create
             routines.sync(db)
             routine_mode=routines.enabled(db)
             current_routine=routines.latest(db,mac)
+        windows_only=windows_only or bool(current_routine and current_routine['windows_only'] and current_routine['stage'] not in routines.TERMINAL)
+        if windows_only:
+            if not routine_mode:
+                return routines.script_response('#!ipxe\necho Windows-only Secure Boot requires routine boot to be enabled in the portal.\nprompt Press any key to return to firmware\nexit\n')
+            if current_routine and current_routine['stage'] not in routines.TERMINAL and not windows_secure_boot.supported(json.loads(current_routine['spec'])):
+                return routines.script_response('#!ipxe\necho The active routine needs erasure or custom boot.\necho Use the regular PXE entry for that routine, or cancel it in the portal and choose a Windows-only routine.\nprompt Press any key to return to firmware\nexit\n')
         if custom and routine_mode and (not current_routine or current_routine['stage'] in routines.TERMINAL):
-            return routines.script_response(routines.menu_script(store(),mac,address,idle=bool(current_routine)))
+            if windows_only:windows_secure_boot.load(store().root)
+            return routines.script_response(routines.menu_script(store(),mac,address,idle=bool(current_routine),windows_only=windows_only))
         routine_script,routine_run,routine_handled=routines.routing(store(),mac,address)
         if routine_script:return routines.script_response(routine_script)
         if routine_mode and not custom and not routine_handled:
-            return routines.script_response(routines.menu_script(store(),mac,address,idle=True))
+            return routines.script_response(routines.menu_script(store(),mac,address,idle=True,windows_only=windows_only))
         workflow_script,workflow_run=(None,None) if routine_handled else workflows.boot_decision(store(),mac,address)
         if workflow_script:
             return PlainTextResponse(workflow_script,headers={'Cache-Control':'no-store'})
-        media=available(optional=bool(routine_run))
-        if custom and not workflow_run and file_workspace.boot_settings(store())['enabled']:
+        media=windows_secure_boot.load(store().root)['windowsMedia'] if windows_only else available(optional=bool(routine_run))
+        if custom and not windows_only and not workflow_run and file_workspace.boot_settings(store())['enabled']:
             # Completion guard above applies to custom menus as well. No device
             # enrollment/ticket is created until managed imaging is selected.
             return PlainTextResponse(f'''#!ipxe
@@ -370,6 +377,7 @@ boot
                 manual=step['target_policy']=='manual' or step['target_policy']=='auto-unless-multiple' and not target
                 policy.update(automaticDiskSelection=not manual,startDelaySeconds=5 if step['target_policy'] in ('first-disk','manual','auto-unless-multiple') else 0,targetIdentity=target,targetDiskPolicy='format-selected-disk',manualDiskSelection=manual,verifyImage=step.get('verify_image',True))
                 if step.get('finish_options') is not None:policy['finishOptions']=step['finish_options']
+                if routine['windows_only']:policy['windowsOnly']=True
             if spec.managed_selection:
                 options=routines.windows_choices(db,{**dict(row),'manufacturer':spec.manufacturer,'model':spec.model},target,profile_artifacts) if routine else boot_options_for(db,spec.manufacturer,spec.model,target)
                 policy['profileId']=requested or options['selectedProfileId'] or (options['choices'][0]['id'] if options['choices'] else None)
@@ -559,7 +567,8 @@ boot
                 'settings':settings.model_dump(),'configurations':profiles,
                 'routines':routine_data,
                 'attention_count':routine_data['counts']['attention'] + client_data['client_counts']['standalone_attention'],
-                'network':network,'recent_jobs':recent,'pxe':json.loads(media.read_text()) if media.is_file() else None}
+                'network':network,'recent_jobs':recent,'pxe':json.loads(media.read_text()) if media.is_file() else None,
+                'windows_secure_boot':windows_secure_boot.status(store().root)}
 
 
 def routine_dashboard(store,view='current',search='',db=None,at=None):

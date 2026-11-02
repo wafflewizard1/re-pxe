@@ -90,7 +90,6 @@ LRESULT CALLBACK procedure(HWND h,UINT m,WPARAM w,LPARAM l){
                     if(selected.contains("finishOptions"))config["finishOptions"]=selected.at("finishOptions");
                     config["driverConsole"]=true;config["verifyImage"]=selected.value("verifyImage",true);
                     config["offlineDriverMode"]="all-reviewed";
-                    if(selected.at("profile").value("driver_source","")=="automatic")config["windowsUpdate"]={{"timeoutSeconds",selected.at("profile").at("windows_update_timeout_seconds")},{"maxAttempts",selected.at("profile").at("windows_update_max_attempts")}};
                     auto path=session/L"review.json";write_json(path,config);auto plan=pxe_preflight(config,path,meta);u->post("review",{{"selection",selected},{"config",config},{"metadata",meta},{"path",utf8(path.wstring())},{"plan",plan}});});return 0;
             }
             if(id==Install){

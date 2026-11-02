@@ -35,6 +35,17 @@ function fixture(saved={},darkSystem=false){
  return {element,document,dashboard,client,settings,configurations,requests,call,context,persistent,sessionValues,media,systemEvents,windowEvents,browserHistory,navigationEntries,confirmations,documentEvents};
 }
 
+test('automatic Windows presets save server drivers without update controls',async()=>{
+ const f=fixture();f.call('refresh=async()=>{}');
+ for(const [id,value] of Object.entries({'profile-name':'Workshop','profile-label':'Windows Pro','profile-image':'image-1','profile-driver-source':'automatic','profile-mode':'choose-version','profile-recovery':'1536'}))f.element(id).value=value;
+ f.element('profile-hardware-neutral').checked=false;f.element('profile-bootex').checked=false;
+ const button={disabled:false};await f.element('profile-form').listeners.submit({preventDefault(){},submitter:button});
+ const request=f.requests.find(r=>r.path==='/api/profiles');assert.ok(request);
+ const body=JSON.parse(request.options.body);assert.equal(body.driver_source,'automatic');assert.deepEqual(body.driver_ids,[]);
+ assert.equal(Object.hasOwn(body,'windows_update_timeout_seconds'),false);assert.equal(Object.hasOwn(body,'windows_update_max_attempts'),false);
+ assert.equal(button.disabled,false);
+});
+
 test('client choices default while booting and lock to the claimed choice',()=>{
  const f=fixture();f.call('renderClients(fixtureDashboard)');let html=f.element('client-table').innerHTML;
  assert.match(html,/data-client-config="client-1"/);assert.match(html,/<option value="" selected>Default · Windows Pro/);assert.doesNotMatch(html,/aria-label="Configuration for Serial unavailable · VM" disabled/);
@@ -752,6 +763,18 @@ test('new Windows steps default to auto unless multiple drives and retain older 
  change({target:{dataset:{routineField:'target_policy'},type:'select-one',value:'auto-unless-multiple'}});
  assert.equal(f.call('routineDraft.steps[1].target_policy'),'auto-unless-multiple');
  assert.equal(f.call('routineDirty'),true);
+});
+
+test('Windows Secure Boot settings show candidate scope and the separate DHCP path',()=>{
+ const f=fixture();f.context.signedEntry={available:true,validation:'Candidate — hardware testing required',dhcp_filename:'pxe/secureboot/test/snponly-shim.efi'};
+ const html=f.call('secureBootEntryHtml(signedEntry)');
+ assert.match(html,/Windows-only Secure Boot/);assert.match(html,/hardware testing required/);
+ assert.match(html,/pxe\/secureboot\/test\/snponly-shim.efi/);assert.match(html,/does not change your DHCP/);
+ assert.doesNotMatch(html,/Validated/);
+ f.context.signedEntry.dhcp_filename='<img src=x>';assert.doesNotMatch(f.call('secureBootEntryHtml(signedEntry)'),/<img/);
+ assert.match(f.call('secureBootEntryHtml(undefined)'),/No signed candidate/);
+ const page=readFileSync(fileURLToPath(new URL('../repxe/static/index.html',import.meta.url)),'utf8');
+ assert.match(page,/id="secure-boot-information"/);
 });
 
 test('routine Windows image verification defaults on and persists explicit skip',()=>{

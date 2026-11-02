@@ -1,5 +1,9 @@
 # Windows client and WinPE
 
+An opt-in [Windows-only Secure Boot candidate](windows-secure-boot.md) is available
+for testing with signed iPXE/shim and managed WinPE. It uses a separate DHCP boot
+entry and does not replace the regular ShredOS-capable path.
+
 Windows routines can publish without a selected or validated PXE media release.
 Select your published WIM in an enabled Windows preset and publish the routine.
 If no PXE bundle is selected, the server attempts to boot that uploaded WIM
@@ -152,7 +156,15 @@ selection protocol, so current clients do not need new media.
 Upload your generalized AMD64 Windows image in the portal, select its image index,
 review its validation and publish it. Create an enabled Windows preset, then use
 that preset in a Windows step of a published routine. Driver packages can be added
-through the portal; exact-model reviewed drivers and Windows Update are supported.
+through the portal; matching reviewed server drivers and local signed INFs are supported.
+Client 0.14.3 and later supports native completion reports up to 10 MiB, with
+the original queued SHA-256 integrity and server acknowledgement checks intact.
+Oversized reports have a separate size error. Local completion state allows
+additional delivery diagnostics; ordinary configuration files retain their limit.
+
+The client does not search Windows Update. Remaining device problems stay visible
+for technician review before Finish setup. Older preset update fields are accepted
+for compatibility and ignored by client 0.14.2 and later.
 
 The Windows image upload's SHA-256 field is optional. Leave it blank and the
 server calculates and records the hash while validating the uploaded WIM.

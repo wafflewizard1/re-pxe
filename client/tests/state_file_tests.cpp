@@ -1,4 +1,5 @@
 #include <repxe/state_file.hpp>
+#include <repxe/json_file.hpp>
 #include <fstream>
 #include <iostream>
 #include <thread>
@@ -23,6 +24,18 @@ int main(){
         if(files!=2)throw std::runtime_error("Failed writer left its own temporary file");
         repxe::persist_state_file(state,"recovered");
         if(read(state)!="recovered")throw std::runtime_error("Retry failed");
+        std::string prefix="{\"padding\":\"",suffix="\"}";
+        auto large=prefix+std::string(repxe::NativeReportMaxBytes-prefix.size()-suffix.size(),'x')+suffix;
+        repxe::persist_state_file(state,large);
+        auto parsed=repxe::read_json_file(state,repxe::CompletionStateMaxBytes,"State exceeds bound");
+        if(parsed.at("padding").get<std::string>().size()!=repxe::NativeReportMaxBytes-prefix.size()-suffix.size())throw std::runtime_error("Large completion state differs");
+        rejected=false;try{repxe::read_json_file(state,repxe::MiB,"Configuration exceeds 1 MiB");}catch(const std::exception&){rejected=true;}
+        if(!rejected)throw std::runtime_error("Report support widened unrelated configuration reads");
+        large.resize(repxe::CompletionStateMaxBytes,' ');repxe::persist_state_file(state,large);
+        repxe::read_json_file(state,repxe::CompletionStateMaxBytes,"State exceeds bound");
+        large+=' ';repxe::persist_state_file(state,large);
+        rejected=false;try{repxe::read_json_file(state,repxe::CompletionStateMaxBytes,"State exceeds bound");}catch(const std::exception&){rejected=true;}
+        if(!rejected)throw std::runtime_error("Completion state read exceeded its separate bound");
         std::filesystem::remove_all(root);std::cout<<"PASS: stale staging evidence retained; replacement, failed publication and retry checked\n";return 0;
     }catch(const std::exception& e){std::cerr<<e.what()<<"\nFixture preserved: "<<root<<"\n";return 1;}
 }

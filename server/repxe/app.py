@@ -30,6 +30,7 @@ from .auth import WebsiteAuth
 from .driver_inf import amd64_catalog, MAX_INF_BYTES
 
 CHUNK = 16 * 1024 * 1024
+NATIVE_REPORT_MAX_BYTES = 10 * 1024 * 1024
 STAGES = ['created', 'preflight', 'disk-prepared', 'image-applied', 'boot-configured',
           'drivers-staged', 'agent-staged', 'awaiting-windows', 'completing',
           'ready-for-oobe', 'complete']
@@ -1009,8 +1010,8 @@ def create_app(data_root=None, tokens=None, *, secure_cookies=True, allow_http=N
             raise HTTPException(401, 'Job report credential expired')
         raw = bytearray()
         async for chunk in request.stream():
-            if len(raw) + len(chunk) > 512 * 1024:
-                raise HTTPException(413, 'Maximum native report size is 512 KiB')
+            if len(raw) + len(chunk) > NATIVE_REPORT_MAX_BYTES:
+                raise HTTPException(413, 'Maximum native report size is 10 MiB')
             raw.extend(chunk)
         digest = hashlib.sha256(raw).hexdigest()
         try:
