@@ -157,6 +157,11 @@ Upload your generalized AMD64 Windows image in the portal, select its image inde
 review its validation and publish it. Create an enabled Windows preset, then use
 that preset in a Windows step of a published routine. Driver packages can be added
 through the portal; matching reviewed server drivers and local signed INFs are supported.
+Client 0.14.3 and later supports native completion reports up to 10 MiB, with
+the original queued SHA-256 integrity and server acknowledgement checks intact.
+Oversized reports have a separate size error. Local completion state allows
+additional delivery diagnostics; ordinary configuration files retain their limit.
+
 The client does not search Windows Update. Remaining device problems stay visible
 for technician review before Finish setup. Older preset update fields are accepted
 for compatibility and ignored by client 0.14.2 and later.

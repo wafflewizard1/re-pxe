@@ -12,7 +12,7 @@ import time
 import paramiko
 
 ROOT=Path(__file__).resolve().parents[1]
-VERSION='0.14.2'
+VERSION='0.14.3'
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -60,6 +60,7 @@ def main():
               'driverConsoleUploadAvailable':True,'driverLibraryContentDeduplicationAvailable':True,
               'driverLibraryModelTagsAvailable':True,
               'windowsUpdateDriverCompletionAvailable':False,'offlineBootCriticalDriverStagingAvailable':True,
+              'nativeReportMaxBytes':10*1024*1024,
               'completionReportDelivery':'https-job-scoped-durable-explicit-retry'}
     if tuple(map(int,version.split('.'))) >= (0,13,0):
         manifest.update({'routineFinishOptionsAvailable':True,'acceptedReportClientCleanupAvailable':True,'customerDesktopPdfAvailable':True,'routineLocalAccountAvailable':True,'customerReportIntegrity':'sha256-and-size'})

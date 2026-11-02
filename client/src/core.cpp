@@ -75,6 +75,11 @@ bool validate_completion_bindings(const Json& state,const std::string& installed
     return changed;
 }
 
+void validate_queued_report(unsigned long long size,const std::string& expected_hash,const std::string& actual_hash){
+    require(size<=NativeReportMaxBytes,"Queued report exceeds 10 MiB");
+    require(actual_hash==expected_hash,"Queued report integrity differs");
+}
+
 Json completion_state_after_reload(Json persisted,const Json& verified){
     require(persisted.is_object(),"Reloaded completion state must be an object");
     require(verified.is_object()&&verified.contains("windowsKernelBinding")&&verified.at("windowsKernelBinding").is_object(),"Verified Windows kernel binding is missing");
@@ -513,7 +518,7 @@ Json deployment_plan(const Json& config, const Json& inventory, const Json& imag
     const auto required = image_bytes + headroom + esp + msr + recovery + 4 * MiB;
     const auto capacity = target.at("sizeBytes").get<unsigned long long>();
     require(capacity >= required, "Target disk is too small for the image, layout and free-space reserve");
-    return {{"schemaVersion", 1}, {"toolVersion", "0.14.2"}, {"readOnly", true}, {"diskWritesPerformed", false},
+    return {{"schemaVersion", 1}, {"toolVersion", "0.14.3"}, {"readOnly", true}, {"diskWritesPerformed", false},
         {"config", config}, {"target", target}, {"image", selected_image}, {"sha256", actual_hash},
         {"resources", resources}, {"requiredBytes", required}, {"preserveOtherDisks", true},
         {"layout", Json::array({{{"role","efi"},{"filesystem","FAT32"},{"sizeMiB",260}},

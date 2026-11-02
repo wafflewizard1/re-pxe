@@ -32,8 +32,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S client -B .local/windows-trust -A x64
-      - run: cmake --build .local/windows-trust --config Release --target re-pxe repxe_core_tests repxe_windows_trust_tests repxe_startup_tests repxe_operation_lock_tests
-      - run: ctest --test-dir .local/windows-trust -C Release --output-on-failure -R "^(core|windows_trust|completion_startup|operation_lock)$"
+      - run: cmake --build .local/windows-trust --config Release --target re-pxe repxe_core_tests repxe_windows_trust_tests repxe_startup_tests repxe_operation_lock_tests repxe_state_file_tests
+      - run: ctest --test-dir .local/windows-trust -C Release --output-on-failure -R "^(core|windows_trust|completion_startup|operation_lock|state_file)$"
       - name: Removed Windows Update worker cannot be invoked
         shell: pwsh
         run: |

@@ -22,6 +22,10 @@ std::string battery_health_script();
 Json powercfg_battery_health(const std::string& xml);
 inline constexpr unsigned long long MiB = 1024ULL * 1024;
 inline constexpr unsigned long long GiB = 1024ULL * MiB;
+inline constexpr unsigned long long NativeReportMaxBytes = 10 * MiB;
+// Completion state also contains local delivery/retry diagnostics.
+inline constexpr unsigned long long CompletionStateMaxBytes = 16 * MiB;
+void validate_queued_report(unsigned long long size,const std::string& expected_hash,const std::string& actual_hash);
 std::string completion_action(const std::string& stage, bool new_boot, bool driver_problems);
 bool validate_completion_bindings(const Json& state,const std::string& installed_hash,const std::string& running_hash,const std::string& kernel_hash,bool trusted_kernel);
 // Merge a fresh state read with evidence from the independently verified

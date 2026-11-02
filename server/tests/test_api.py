@@ -315,7 +315,25 @@ def test_native_report_binding_and_evidence(client, monkeypatch):
     for path, value in [('drivers', {'problems': ['Missing driver']}), ('startupTriggerRemoved', False),
                         ('bootObservations', [{'bootId': 'same'}, {'bootId': 'same'}]), ('history', [])]:
         assert client.post(cap['path'], json={**snapshot, path: value}, headers=headers).status_code == 422
-    assert client.post(cap['path'], content=b'x'*(512*1024+1), headers=headers).status_code == 413
+    assert client.post(cap['path'], content=b'x'*(10*1024*1024+1), headers=headers).status_code == 413
+
+
+def test_native_report_ten_mib_boundary_and_exact_retry(client, monkeypatch):
+    job, cap, snapshot = native_job(client, monkeypatch)
+    headers = {'Authorization': 'Bearer ' + cap['token']}
+    encoded = json.dumps(snapshot).encode()
+    # Valid trailing JSON whitespace makes the wire payload exactly 10 MiB.
+    payload = encoded + b' ' * (10*1024*1024-len(encoded))
+    too_large = client.post(cap['path'], content=payload+b' ', headers=headers)
+    assert too_large.status_code == 413 and '10 MiB' in too_large.text
+    accepted = client.post(cap['path'], content=payload, headers=headers)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()['sha256'] == hashlib.sha256(payload).hexdigest()
+    assert client.post(cap['path'], content=payload, headers=headers).json()['duplicate'] is True
+    # Byte integrity remains pinned even when the parsed report is identical.
+    changed = client.post(cap['path'], content=payload[:-1]+b'\n', headers=headers)
+    assert changed.status_code == 409
+    assert client.get('/api/jobs/'+job+'/report', headers=auth()).json()['native']['stage'] == 'complete'
 
 
 def test_native_report_rotation_and_expiry(client, monkeypatch):

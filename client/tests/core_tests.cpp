@@ -21,6 +21,16 @@ Json resources(){return Json::array({{{"role","image"},{"resolved",true},{"diskN
 }
 int main(int argc,char** argv){
     {
+        const std::string hash(64,'a');
+        check(NativeReportMaxBytes==10*MiB,"Native reports support exactly 10 MiB");
+        validate_queued_report(512*1024+1,hash,hash);
+        validate_queued_report(NativeReportMaxBytes,hash,hash);
+        rejects([&]{validate_queued_report(NativeReportMaxBytes+1,hash,hash);},"Reject reports above 10 MiB");
+        rejects([&]{validate_queued_report(NativeReportMaxBytes,hash,std::string(64,'b'));},"Retain report hash integrity at the larger size limit");
+        try{validate_queued_report(NativeReportMaxBytes+1,hash,hash);}
+        catch(const std::exception& e){check(std::string(e.what())=="Queued report exceeds 10 MiB","Distinguish oversized reports from changed contents");}
+    }
+    {
         const std::string job="11111111-2222-3333-4444-555555555555",id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",path="/api/client-jobs/"+job;
         Json command={{"id",id},{"job_id",job},{"action","restart"}};
         validate_windows_command(command,path);check(true,"Accept a restart bound to this Windows job");
@@ -146,7 +156,7 @@ try{
     bad_policy=automatic;bad_policy["managedSelection"]=false;rejects([&]{validate_pxe_automation(bad_policy,candidates);},"Require server-managed image selection");
     bad_policy=automatic;bad_policy["startDelaySeconds"]=0;validate_pxe_automation(bad_policy,candidates);check(true,"Permit an explicitly configured immediate start");
     auto plan=deployment_plan(base,hardware,wim,hash,paths);
-    check(plan["toolVersion"]=="0.14.2","Report current planner version");
+    check(plan["toolVersion"]=="0.14.3","Report current planner version");
     check(plan["readOnly"]==true && plan["diskWritesPerformed"]==false,"Planning must not perform writes");
     check(plan["target"]["number"]==1 && plan["preserveOtherDisks"]==true,"Resolve exactly the requested target");
     check(plan["executionAvailable"]==false,"Execution requires an explicit target policy");

@@ -1,4 +1,5 @@
 #include <repxe/windows.hpp>
+#include <repxe/json_file.hpp>
 #include <repxe/windows_trust.hpp>
 #include <repxe/operation_lock.hpp>
 #include <repxe/state_file.hpp>
@@ -126,7 +127,8 @@ public:
 
 std::string utf8(const std::wstring& text){if(text.empty())return {};int length=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,text.data(),static_cast<int>(text.size()),nullptr,0,nullptr,nullptr);if(!length)fail("Encode UTF-8");std::string value(length,'\0');WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,text.data(),static_cast<int>(text.size()),value.data(),length,nullptr,nullptr);return value;}
 std::wstring wide(const std::string& text){if(text.empty())return {};int length=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),static_cast<int>(text.size()),nullptr,0);if(!length)fail("Decode UTF-8");std::wstring value(length,L'\0');MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),static_cast<int>(text.size()),value.data(),length);return value;}
-Json read_json(const std::filesystem::path& path){if(std::filesystem::file_size(path)>1024*1024)throw std::runtime_error("Configuration exceeds 1 MiB");std::ifstream stream(path,std::ios::binary);if(!stream)throw std::runtime_error("Cannot read configuration");return Json::parse(stream);}
+Json read_json(const std::filesystem::path& path){return read_json_file(path,MiB,"Configuration exceeds 1 MiB");}
+static Json read_completion_state(const std::filesystem::path& path){return read_json_file(path,CompletionStateMaxBytes,"Completion state exceeds 16 MiB");}
 void write_json(const std::filesystem::path& path,const Json& value){
     persist_state_file(path,value.dump(2)+"\n");
 }
@@ -208,7 +210,7 @@ Json inventory(){
             {"size_bytes",disk.at("sizeBytes")},{"removable",disk.at("removable")},
             {"bus_type",bus==17?"NVMe":bus==11?"SATA":bus==7?"USB":bus==1?"SCSI":bus==8?"RAID":"Other"}});
     }
-    return {{"specs",specs},{"manufacturer",bios(L"SystemManufacturer")},{"model",bios(L"SystemProductName")},{"schemaVersion",1},{"toolVersion","0.14.2"},{"readOnly",true},{"environment",{{"winpe",winpe()},{"administrator",admin()},
+    return {{"specs",specs},{"manufacturer",bios(L"SystemManufacturer")},{"model",bios(L"SystemProductName")},{"schemaVersion",1},{"toolVersion","0.14.3"},{"readOnly",true},{"environment",{{"winpe",winpe()},{"administrator",admin()},
         {"firmware",firmware==FirmwareTypeUefi?"uefi":firmware==FirmwareTypeBios?"bios":"unknown"},
         {"architecture",system.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64?"amd64":"unsupported"},
         {"executable",utf8(executable())}}},{"disks",disks},{"volumes",volumes},{"warnings",warnings}};
@@ -518,7 +520,7 @@ Json deploy_internal(Json config,const std::filesystem::path& config_path,bool e
     plan["blankTargetVerified"]=blank_only;plan["targetWillBeFormatted"]=target_policy=="format-selected-disk";plan["layoutBytes"]=parts;if(!execute)return plan;
     Handle mutex(CreateMutexW(nullptr,TRUE,L"Global\\repxeDeployment"));if(!mutex)fail("Create deployment lock");if(GetLastError()==ERROR_ALREADY_EXISTS)throw std::runtime_error("Another deployment owns the deployment lock");
     auto id=sha256(config_path).substr(0,16);auto jobs=std::filesystem::path(wide(config.at("jobDirectory")));auto job=jobs/(L"deploy-"+wide(id)+L".json");if(std::filesystem::exists(job))throw std::runtime_error("Deployment job already exists; automatic destructive retries are refused");
-    Json state={{"schemaVersion",1},{"toolVersion","0.14.2"},{"id",id},{"stage","preflight"},{"startedUtc",utc_now()},{"plan",plan},{"history",Json::array()},{"diskWritesPerformed",false}};
+    Json state={{"schemaVersion",1},{"toolVersion","0.14.3"},{"id",id},{"stage","preflight"},{"startedUtc",utc_now()},{"plan",plan},{"history",Json::array()},{"diskWritesPerformed",false}};
     auto stage=[&](const char* name){state["stage"]=name;state.erase("progressPercent");if(std::string(name)=="applying-image")state["progressPercent"]=0;state["history"].push_back({{"stage",name},{"utc",utc_now()}});write_json(job,state);std::cerr<<"Deployment stage: "<<name<<"\n";if(progress)progress(state);};
     auto tool=[&](const char* name,std::vector<std::wstring> args,const std::string& input=""){auto log=jobs/(L"deploy-"+wide(id)+L"-"+wide(name)+L".log");std::function<void(int)> observe;
         if(std::string(name)=="apply")observe=[&](int percent){state["progressPercent"]=percent;state["imageApplyPercent"]=percent;write_json(job,state);if(progress)progress(state);};
@@ -787,7 +789,7 @@ void stage_completion(const std::filesystem::path& volume,const Json& target,con
     std::filesystem::create_directories(root);protect_path(root);
     for(size_t i=0;i<previous_answers.size();++i){auto backup=root/(L"reference-unattend-"+std::to_wstring(i)+L".xml");std::filesystem::copy_file(previous_answers[i],backup);protect_path(backup);std::filesystem::remove(previous_answers[i]);}
     auto exe=root/L"re-pxe.exe";std::filesystem::copy_file(executable(),exe);protect_path(exe);
-    Json state={{"schemaVersion",1},{"toolVersion","0.14.2"},{"id",id},{"stage","awaiting-windows"},{"target",target},{"diskGuid",guid_text(disk_id)},{"windowsPartitionGuid",guid_text(partition_id)},
+    Json state={{"schemaVersion",1},{"toolVersion","0.14.3"},{"id",id},{"stage","awaiting-windows"},{"target",target},{"diskGuid",guid_text(disk_id)},{"windowsPartitionGuid",guid_text(partition_id)},
         {"clientSha256",sha256(exe)},{"kernelSha256",sha256(volume/L"Windows\\System32\\ntoskrnl.exe")},{"imageSha256",config.at("sha256")},{"imageIndex",config.value("imageIndex",1)},
         {"history",Json::array()},{"bootObservations",Json::array()},{"driverActions",Json::array()},{"deliveryStatus","local-only"},{"generalizationPerformed",false}};
     if(config.value("driverConsole",false)){state["driverConsole"]=true;state["driverAutomaticAttempted"]=false;state["windowsUpdateRegistry"]=pause_update_policy(volume/L"Windows");}
@@ -929,7 +931,7 @@ Json deliver_queue(const std::filesystem::path& root){
         auto secret=root/L"delivery-secret.json";if(std::filesystem::exists(secret)){verify_protected(secret);std::filesystem::remove(secret);}return queue;
     }
     auto report=root/L"report.json",secret=root/L"delivery-secret.json";verify_protected(report);verify_protected(secret);
-    if(sha256(report)!=queue.at("sha256").get<std::string>() || std::filesystem::file_size(report)>512*1024)throw std::runtime_error("Queued report integrity differs");
+    validate_queued_report(std::filesystem::file_size(report),queue.at("sha256").get<std::string>(),sha256(report));
     auto payload=read_tool_text(report);auto delivery=read_delivery_config({{"reportDelivery",utf8(secret.wstring())}});
     queue["attempts"]=queue.value("attempts",0)+1;queue["lastAttemptUtc"]=utc_now();write_json(file,queue);protect_path(file);
     try{
@@ -937,7 +939,7 @@ Json deliver_queue(const std::filesystem::path& root){
         auto endpoint=delivery.at("endpoint").get<std::string>();auto end=endpoint.rfind("/report"),begin=endpoint.rfind('/',end-1);auto id=endpoint.substr(begin+1,end-begin-1);
         if(ack.at("accepted")!=true || ack.at("sha256")!=queue.at("sha256") || ack.at("jobId")!=id)throw std::runtime_error("Report acknowledgement binding differs");
         queue["acknowledgement"]=ack;write_json(file,queue);protect_path(file);
-        auto state=read_json(root/L"completion.json");
+        auto state=read_completion_state(root/L"completion.json");
         if(state.value("stage",std::string())=="complete"&&state.value("finishOptions",Json::object()).value("save_report_desktop",false)){
             const auto origin=endpoint.substr(0,endpoint.find("/api/")),base="/api/client-jobs/"+id+"/customer-report";
             auto manifest=server_request(origin,delivery.at("token"),base,L"GET");
@@ -1019,7 +1021,7 @@ CompletionInstallation completion_installation(const std::filesystem::path& offl
     if(offline.empty() && _wcsicmp(std::filesystem::path(executable()).c_str(),exe.c_str()))throw std::runtime_error("Completion must run from its protected installed location");
     if(!admin())throw std::runtime_error("Completion requires an elevated Audit user");
     verify_protected(root);verify_protected(exe);verify_protected(file);
-    auto state=read_json(file);
+    auto state=read_completion_state(file);
     const auto kernel=windows/L"System32\\ntoskrnl.exe";no_reparse(kernel);
     Handle kernel_lock(CreateFileW(kernel.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr));if(!kernel_lock)fail("Lock completion kernel for verification");
     const auto kernel_hash=sha256(kernel);
@@ -1058,7 +1060,7 @@ Json deliver_report(const std::filesystem::path& offline){
 Json complete_windows(const std::string& mode){
     auto installed=completion_installation({});auto windows=installed.windows,root=installed.root,exe=installed.exe,file=installed.file;auto state=installed.state;
     OperationLock mutex(L"Global\\repxeCompletion");if(!mutex)return {{"stage","already-running"}};
-    state=completion_state_after_reload(read_json(file),installed.state);
+    state=completion_state_after_reload(read_completion_state(file),installed.state);
     if(state.at("stage")=="complete"){
         if(mode!="finish")return state;
         // Report retry is transport-only: do not run drivers, recovery or Sysprep again.
@@ -1233,8 +1235,8 @@ Json driver_session_snapshot(){
 void driver_session_pulse(){
     thread_local std::filesystem::path root;
     if(root.empty()){auto installed=completion_installation({});driver_environment(installed);root=installed.root;}
-    const auto file=root/L"completion.json";verify_protected(file);if(std::filesystem::file_size(file)>4*MiB)throw std::runtime_error("Driver state exceeds heartbeat bound");
-    auto state=read_json(file);if(state.value("stage",std::string())=="complete")return;const bool attention=state.value("stage",std::string())=="driver-menu"&&(state.contains("error")||(state.contains("drivers")&&!state.at("drivers").at("problems").empty()));
+    const auto file=root/L"completion.json";verify_protected(file);if(std::filesystem::file_size(file)>CompletionStateMaxBytes)throw std::runtime_error("Driver state exceeds heartbeat bound");
+    auto state=read_completion_state(file);if(state.value("stage",std::string())=="complete")return;const bool attention=state.value("stage",std::string())=="driver-menu"&&(state.contains("error")||(state.contains("drivers")&&!state.at("drivers").at("problems").empty()));
     completion_pulse(root,attention?"needs-operator":"completing",attention?state.value("error",std::string("Devices need drivers. Open the driver console for details.")):std::string());
 }
 
@@ -1245,8 +1247,8 @@ void driver_remote_controls(){
     if(!cached){cached=completion_installation({});driver_environment(*cached);}
     const auto& context=*cached;
     verify_protected(context.file);
-    if(std::filesystem::file_size(context.file)>4*MiB)throw std::runtime_error("Driver state exceeds control bound");
-    auto state=read_json(context.file);
+    if(std::filesystem::file_size(context.file)>CompletionStateMaxBytes)throw std::runtime_error("Driver state exceeds control bound");
+    auto state=read_completion_state(context.file);
     if(state.value("stage",std::string())=="complete")return;
     bool busy;
     {
@@ -1254,7 +1256,7 @@ void driver_remote_controls(){
         busy=!operation||!worker||state.value("driverInstallationMayBeInProgress",false);
     }
     const auto connection=driver_connection(context);
-    Json request={{"client_version","0.14.2"},{"busy",busy}};
+    Json request={{"client_version","0.14.3"},{"busy",busy}};
     auto response=pxe_api(connection.origin,connection.token,connection.path+"/windows/poll",&request);
     if(!response.contains("command")||response.at("command").is_null())return;
     auto command=response.at("command");validate_windows_command(command,connection.path);
@@ -1263,7 +1265,7 @@ void driver_remote_controls(){
     if(action!="file"){
         operation=std::make_unique<OperationLock>(L"Global\\repxeCompletion");
         worker=std::make_unique<OperationLock>(L"Global\\repxeDriverUpdate");
-        if(!*operation||!*worker||read_json(context.file).value("driverInstallationMayBeInProgress",false))return;
+        if(!*operation||!*worker||read_completion_state(context.file).value("driverInstallationMayBeInProgress",false))return;
     }
     const auto receipt_file=context.root/L"windows-control-receipts.json";
     Json receipts=Json::object();
@@ -1295,7 +1297,7 @@ void driver_remote_controls(){
                         // pulse advertises activity without claiming another file.
                         try{
                             completion_pulse(context.root,"completing");
-                            Json pulse={{"client_version","0.14.2"},{"busy",true},{"accept_commands",false}};
+                            Json pulse={{"client_version","0.14.3"},{"busy",true},{"accept_commands",false}};
                             pxe_api(connection.origin,connection.token,connection.path+"/windows/poll",&pulse);
                         }catch(...){}
                     });
@@ -1313,7 +1315,7 @@ void driver_remote_controls(){
                     result["path"]=utf8(destination.wstring());std::filesystem::remove(staged);
                 }catch(...){std::error_code ec;std::filesystem::remove(staged,ec);throw;}
             }else{
-                auto current=completion_state_after_reload(read_json(installed.file),installed.state);
+                auto current=completion_state_after_reload(read_completion_state(installed.file),installed.state);
                 completion_trigger(true,installed.exe.wstring());current["startupTriggerRemoved"]=false;
                 current["startupTrigger"]="HKLM Run + auditUser";
                 if(action=="restart"){
@@ -1353,7 +1355,7 @@ Json driver_session_action(const std::string& action,const std::filesystem::path
         if(!finish_lock)throw std::runtime_error("Another driver operation is running");
         OperationLock worker_lock(L"Global\\repxeDriverUpdate");
         if(!worker_lock)throw std::runtime_error("A previous driver update operation is still running");
-        state=completion_state_after_reload(read_json(file),installed.state);next=driver_finish_action(state,boot_identity());
+        state=completion_state_after_reload(read_completion_state(file),installed.state);next=driver_finish_action(state,boot_identity());
         const auto live_seal=completion_seal_action(utf8(registry_text(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\State",L"ImageState")));
         if(live_seal=="finalize-oobe"&&next=="checkpoint-reboot")throw std::runtime_error("OOBE is already sealed but its driver restart checkpoint is incomplete; preserve the report and review the saved restart evidence");
         if(state.contains("error")||state.contains("sealedImageState")){
@@ -1383,7 +1385,7 @@ Json driver_session_action(const std::string& action,const std::filesystem::path
     }
     OperationLock mutex(L"Global\\repxeCompletion");
     if(!mutex)throw std::runtime_error("Another driver operation is running");
-    state=completion_state_after_reload(read_json(file),installed.state);
+    state=completion_state_after_reload(read_completion_state(file),installed.state);
     auto emit=[&](const std::string& line){if(output)output(line);};
     auto save=[&]{write_json(file,state);protect_path(file);};
     auto restart=[&](const std::filesystem::path& log){
